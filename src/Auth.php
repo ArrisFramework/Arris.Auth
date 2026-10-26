@@ -199,6 +199,7 @@ final class Auth
      * @throws InvalidCredentialsException
      * @throws EmailNotVerifiedException
      * @throws AccountDisabledException
+     * @throws ConfigurationException
      */
     public function login(string $email, string $password, bool $remember = false): User
     {
@@ -218,6 +219,7 @@ final class Auth
      * @throws AmbiguousUsernameException
      * @throws EmailNotVerifiedException
      * @throws AccountDisabledException
+     * @throws ConfigurationException
      */
     public function loginWithUsername(string $username, string $password, bool $remember = false): User
     {
@@ -627,6 +629,10 @@ final class Auth
      */
     private function loginRow(array $row, string $password, bool $remember): User
     {
+        if ($this->options['mode'] === self::MODE_TOKEN) {
+            throw new ConfigurationException('Session login is not available in token mode; use issueToken()');
+        }
+
         if (!\password_verify($password, (string) $row['password'])) {
             throw new InvalidCredentialsException('Invalid credentials');
         }

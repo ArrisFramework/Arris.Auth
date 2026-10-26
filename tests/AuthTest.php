@@ -7,6 +7,7 @@ namespace Tests;
 use Arris\Auth\Auth;
 use Arris\Auth\Exception\AccountDisabledException;
 use Arris\Auth\Exception\AmbiguousUsernameException;
+use Arris\Auth\Exception\ConfigurationException;
 use Arris\Auth\Exception\EmailNotVerifiedException;
 use Arris\Auth\Exception\InvalidCredentialsException;
 use Arris\Auth\Exception\InvalidEmailException;
@@ -414,6 +415,15 @@ final class AuthTest extends TestCase
         $auth->addRole($id, Role::ADMIN);
 
         self::assertTrue($auth->hasRole(Role::ADMIN));
+    }
+
+    public function testLoginInTokenModeThrows(): void
+    {
+        $this->createUser();
+
+        $this->expectException(ConfigurationException::class);
+
+        $this->auth(Auth::MODE_TOKEN)->login('user@example.com', 'correct horse battery staple');
     }
 
     public function testIssueTokenForUnknownUserThrows(): void

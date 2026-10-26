@@ -48,9 +48,18 @@ CREATE TABLE `users_tokens` (
 
 Полная схема — в `_database/schema.sql`.
 
-Сессии в этой схеме **не хранятся**: используется нативный PHP session storage.
-`users_tokens` нужен для bearer-токенов и для «remember me» cookie. Если позже понадобятся
-DB-backed сессии, это будет отдельная таблица (`users_sessions`), а не `users_tokens`.
+### Где хранятся сессии
+
+`Auth` использует **нативные PHP-сессии**, а не собственную таблицу сессий. Конкретное
+хранилище задаёт PHP, а не пакет:
+
+- по умолчанию `session.save_handler=files` — сессии лежат в файлах;
+- Redis/Memcached — через соответствующий `session.save_handler` из расширения PHP;
+- БД или другое хранилище — через свой `SessionHandlerInterface` и `session_set_save_handler()`.
+
+`users_tokens` к сессиям отношения не имеет: там только bearer-токены и remember-me.
+Не складывайте сессии в `users_tokens`; для DB-backed сессий нужна отдельная таблица
+(например, `sessions`) и отдельный `SessionHandlerInterface`.
 
 ## Режимы
 
@@ -67,9 +76,47 @@ $auth = new Auth($pdo, ['mode' => 'token']);
 - `session` — bearer-заголовок игнорируется, работает только cookie-сессия.
 - `token` — сессия не читается и не стартует; только bearer.
 
-Режим не меняет способ хранения данных: `login()` всегда создаёт сессию,
-`issueToken()` всегда создаёт bearer-токен в `users_tokens`. Поэтому можно держать
-два экземпляра `Auth` — один для веба, второй для API.
+### Сессия или токен: что применяется
+
+| | Cookie-сессия | Bearer-токен |
+|---|---|---|
+| Как передаётся | cookie `arris_auth` | `Authorization: Bearer <token>` |
+| Где хранится | backend PHP-сессий (files/Redis/DB/...) | `users_tokens`, только `sha256(token)` |
+| Чем создать | `login()` / `loginWithUsername()` | `issueToken()` |
+| Когда работает | `mode=session` или `mode=auto` | `mode=token` или `mode=auto` |
+| Отзыв | `logout()`, `logoutEverywhere()` | `revokeToken()`, `revokeAllTokens()` |
+| Remember me | да, `login(remember: true)` | нет |
+| Нужны cookies | да | нет |
+| Нужен session storage | да | нет |
+
+В `auto` сначала проверяется Bearer, потом сессия. В `token` сессия не читается
+и не стартует, а `login()` бросает `ConfigurationException` — для API используйте
+`issueToken()`. Дополнительной «магии» для токенов нет: тот же `Auth`, та же таблица
+`users_tokens`, только без cookie и PHP-сессии. Поэтому можно держать два экземпляра
+`Auth` — один для веба, второй для API.
+
+### Своё хранилище сессий
+
+Пакет не вводит свой `SessionStorageInterface`: используйте стандартный
+`SessionHandlerInterface`. Его нужно установить до старта сессии, `Auth` делает это лениво:
+
+```php
+session_set_save_handler($handler, true);
+
+$auth = new Auth($pdo);
+```
+
+Redis можно подключить без своего класса, средствами `ext-redis`:
+
+```php
+ini_set('session.save_handler', 'redis');
+ini_set('session.save_path', 'tcp://127.0.0.1:6379');
+```
+
+Для БД нужен handler, реализующий `SessionHandlerInterface`
+(`open/read/write/destroy/gc`) и таблица вида `sessions(id, data, last_activity)`.
+Опционально можно реализовать `SessionUpdateTimestampHandlerInterface` для ленивого
+обновления времени жизни сессии.
 
 ## Быстрый старт
 
