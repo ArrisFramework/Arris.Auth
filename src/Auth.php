@@ -1,0 +1,743 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Arris\Auth;
+
+use Arris\Auth\Exception\AccountDisabledException;
+use Arris\Auth\Exception\AmbiguousUsernameException;
+use Arris\Auth\Exception\AuthException;
+use Arris\Auth\Exception\ConfigurationException;
+use Arris\Auth\Exception\EmailNotVerifiedException;
+use Arris\Auth\Exception\InvalidCredentialsException;
+use Arris\Auth\Exception\InvalidEmailException;
+use Arris\Auth\Exception\InvalidPasswordException;
+use Arris\Auth\Exception\UnknownUserException;
+use Arris\Auth\Exception\UserAlreadyExistsException;
+use Arris\Auth\Repository\TokenRepository;
+use Arris\Auth\Repository\UserRepository;
+use PDO;
+use PDOException;
+
+final class Auth
+{
+    public const MODE_AUTO = 'auto';
+    public const MODE_SESSION = 'session';
+    public const MODE_TOKEN = 'token';
+
+    public const SESSION_USER_ID = 'auth_user_id';
+    public const SESSION_FORCE_LOGOUT = 'auth_force_logout';
+    public const SESSION_REMEMBERED = 'auth_remembered';
+
+    private const REMEMBER_SEPARATOR = '~';
+
+    private UserRepository $users;
+    private TokenRepository $tokens;
+
+    /** @var array<string, mixed> */
+    private array $options;
+
+    /** @var array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null, lifetime: int} */
+    private array $sessionCookie;
+
+    private ?User $cachedUser = null;
+    private bool $resolved = false;
+    private ?string $currentBearerToken = null;
+
+    /**
+     * @param array{
+     *     mode?: string,
+     *     table_prefix?: string,
+     *     db_schema?: string|null,
+     *     session_name?: string,
+     *     session_cookie?: array<string, mixed>,
+     *     remember_cookie_name?: string,
+     *     remember_ttl?: int,
+     *     token_ttl?: int,
+     *     require_verified?: bool,
+     *     reject_non_normal_status?: bool,
+     *     min_password_length?: int,
+     *     update_last_login?: bool,
+     *     touch_token_interval?: int
+     * } $options
+     */
+    public function __construct(
+        private readonly PDO $pdo,
+        array $options = [],
+    ) {
+        $this->options = \array_replace([
+            'mode' => self::MODE_AUTO,
+            'table_prefix' => '',
+            'db_schema' => null,
+            'session_name' => 'arris_auth',
+            'session_cookie' => [],
+            'remember_cookie_name' => 'arris_remember',
+            'remember_ttl' => 60 * 60 * 24 * 30,
+            'token_ttl' => 60 * 60 * 24 * 30,
+            'require_verified' => true,
+            'reject_non_normal_status' => true,
+            'min_password_length' => 8,
+            'update_last_login' => true,
+            'touch_token_interval' => 60,
+        ], $options);
+
+        if (!\in_array($this->options['mode'], [self::MODE_AUTO, self::MODE_SESSION, self::MODE_TOKEN], true)) {
+            throw new ConfigurationException('Auth mode must be auto, session or token');
+        }
+
+        $this->sessionCookie = \array_replace([
+            'path' => '/',
+            'domain' => '',
+            'secure' => $this->isHttps(),
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'lifetime' => 0,
+        ], $this->options['session_cookie']);
+
+        if ($this->sessionCookie['samesite'] === '') {
+            $this->sessionCookie['samesite'] = null;
+        }
+
+        $this->users = new UserRepository(
+            $this->pdo,
+            $this->options['db_schema'],
+            $this->options['table_prefix']
+        );
+
+        $this->tokens = new TokenRepository(
+            $this->pdo,
+            $this->options['db_schema'],
+            $this->options['table_prefix']
+        );
+    }
+
+    public function pdo(): PDO
+    {
+        return $this->pdo;
+    }
+
+    public function mode(): string
+    {
+        return $this->options['mode'];
+    }
+
+    public function register(
+        string $email,
+        string $password,
+        ?string $username = null,
+        bool $verified = true,
+        int $rolesMask = 0,
+    ): int {
+        $email = $this->validateEmail($email);
+        $this->validateNewPassword($password);
+
+        if ($this->users->findByEmail($email) !== null) {
+            throw new UserAlreadyExistsException('A user with this email address already exists');
+        }
+
+        $username = $username !== null ? \trim($username) : null;
+        if ($username === '') {
+            $username = null;
+        }
+
+        $passwordHash = \password_hash($password, \PASSWORD_DEFAULT);
+        if ($passwordHash === false) {
+            throw new AuthException('Unable to hash the password');
+        }
+
+        try {
+            return $this->users->create(
+                $email,
+                $passwordHash,
+                $username,
+                Status::NORMAL,
+                $verified ? 1 : 0,
+                $rolesMask
+            );
+        } catch (PDOException $e) {
+            if (\in_array((string) $e->getCode(), ['23000', '23505'], true)) {
+                throw new UserAlreadyExistsException('A user with this email address already exists', 0, $e);
+            }
+
+            throw $e;
+        }
+    }
+
+    public function verifyUser(int $userId): void
+    {
+        $this->users->setVerified($userId, true);
+    }
+
+    public function login(string $email, string $password, bool $remember = false): User
+    {
+        $row = $this->users->findByEmail($this->validateEmail($email));
+
+        if ($row === null) {
+            throw new InvalidCredentialsException('Invalid email address or password');
+        }
+
+        return $this->loginRow($row, $password, $remember);
+    }
+
+    public function loginWithUsername(string $username, string $password, bool $remember = false): User
+    {
+        $rows = $this->users->findByUsername(\trim($username));
+
+        if ($rows === []) {
+            throw new InvalidCredentialsException('Invalid username or password');
+        }
+
+        if (\count($rows) > 1) {
+            throw new AmbiguousUsernameException('This username is ambiguous');
+        }
+
+        return $this->loginRow($rows[0], $password, $remember);
+    }
+
+    public function user(): ?User
+    {
+        if ($this->resolved) {
+            return $this->cachedUser;
+        }
+
+        if ($this->options['mode'] !== self::MODE_SESSION) {
+            $bearer = $this->bearerToken();
+
+            if ($bearer !== null) {
+                $this->resolved = true;
+                $this->currentBearerToken = $bearer;
+
+                return $this->cachedUser = $this->userByBearerToken($bearer);
+            }
+        }
+
+        if ($this->options['mode'] === self::MODE_TOKEN) {
+            $this->resolved = true;
+
+            return null;
+        }
+
+        if (!Session::isStarted() && !$this->hasSessionCookie()) {
+            if (!$this->processRememberCookie()) {
+                $this->resolved = true;
+
+                return null;
+            }
+        } else {
+            $this->startSession();
+
+            if (empty($_SESSION[self::SESSION_USER_ID]) && !$this->processRememberCookie()) {
+                $this->resolved = true;
+
+                return null;
+            }
+        }
+
+        $userId = (int) ($_SESSION[self::SESSION_USER_ID] ?? 0);
+        if ($userId <= 0) {
+            $this->resolved = true;
+
+            return null;
+        }
+
+        $row = $this->users->findById($userId);
+        if ($row === null) {
+            $this->clearSessionAuth();
+            $this->deleteRememberCookie();
+            $this->resolved = true;
+
+            return null;
+        }
+
+        if ((int) $row['force_logout'] > (int) ($_SESSION[self::SESSION_FORCE_LOGOUT] ?? 0)) {
+            $this->clearSessionAuth();
+            $this->deleteRememberCookie();
+            $this->resolved = true;
+
+            return null;
+        }
+
+        if ($this->isDisabled($row)) {
+            $this->clearSessionAuth();
+            $this->deleteRememberCookie();
+            $this->resolved = true;
+
+            return null;
+        }
+
+        $this->resolved = true;
+
+        return $this->cachedUser = User::fromRow($row);
+    }
+
+    public function check(): bool
+    {
+        return $this->user() !== null;
+    }
+
+    public function id(): ?int
+    {
+        return $this->user()?->id;
+    }
+
+    public function email(): ?string
+    {
+        return $this->user()?->email;
+    }
+
+    public function username(): ?string
+    {
+        return $this->user()?->username;
+    }
+
+    public function isRemembered(): bool
+    {
+        return Session::isStarted()
+            && ($_SESSION[self::SESSION_REMEMBERED] ?? false) === true;
+    }
+
+    public function hasRole(int $role): bool
+    {
+        return $this->user()?->hasRole($role) ?? false;
+    }
+
+    public function hasAnyRole(int ...$roles): bool
+    {
+        return $this->user()?->hasAnyRole(...$roles) ?? false;
+    }
+
+    public function hasAllRoles(int ...$roles): bool
+    {
+        return $this->user()?->hasAllRoles(...$roles) ?? false;
+    }
+
+    public function issueToken(int $userId, ?int $ttl = null, ?string $name = null): string
+    {
+        if ($this->users->findById($userId) === null) {
+            throw new UnknownUserException('Unknown user');
+        }
+
+        $token = self::randomToken(32);
+        $ttl ??= (int) $this->options['token_ttl'];
+        $expires = $ttl > 0 ? \time() + $ttl : 0;
+
+        $this->tokens->createApi(
+            $userId,
+            self::hashToken($token),
+            $expires,
+            $name !== null && $name !== '' ? $name : null
+        );
+
+        return $token;
+    }
+
+    public function revokeToken(string $token): bool
+    {
+        return $this->tokens->deleteByHash(
+            self::hashToken($token),
+            TokenRepository::KIND_API
+        ) > 0;
+    }
+
+    public function revokeAllTokens(int $userId): int
+    {
+        return $this->tokens->deleteByUser($userId);
+    }
+
+    public function deleteExpiredTokens(): int
+    {
+        return $this->tokens->deleteExpired();
+    }
+
+    public function logout(): void
+    {
+        $bearer = $this->currentBearerToken ?? $this->bearerToken();
+
+        if ($bearer !== null) {
+            $this->tokens->deleteByHash(
+                self::hashToken($bearer),
+                TokenRepository::KIND_API
+            );
+        }
+
+        $this->deleteRememberCookie();
+        $this->clearSessionAuth();
+
+        if (Session::isStarted()) {
+            Session::regenerate(true);
+        }
+
+        $this->resolved = true;
+        $this->cachedUser = null;
+        $this->currentBearerToken = null;
+    }
+
+    public function logoutEverywhere(int $userId): void
+    {
+        $this->users->incrementForceLogout($userId);
+        $this->tokens->deleteByUser($userId);
+
+        if ($this->isCurrentUser($userId)) {
+            $this->deleteRememberCookie();
+        }
+
+        if (Session::isStarted() && (int) ($_SESSION[self::SESSION_USER_ID] ?? 0) === $userId) {
+            $this->clearSessionAuth();
+            Session::regenerate(true);
+        }
+
+        if ($this->cachedUser?->id === $userId) {
+            $this->resolved = true;
+            $this->cachedUser = null;
+            $this->currentBearerToken = null;
+        }
+    }
+
+    public function changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void
+    {
+        $this->validateNewPassword($newPassword);
+
+        $passwordHash = \password_hash($newPassword, \PASSWORD_DEFAULT);
+        if ($passwordHash === false) {
+            throw new AuthException('Unable to hash the password');
+        }
+
+        $this->users->updatePassword($userId, $passwordHash);
+        $forceLogout = $this->users->incrementForceLogout($userId);
+        $this->tokens->deleteByUser($userId);
+
+        if ($this->isCurrentUser($userId)) {
+            $this->deleteRememberCookie();
+        }
+
+        if (Session::isStarted() && (int) ($_SESSION[self::SESSION_USER_ID] ?? 0) === $userId) {
+            if ($keepCurrentSession) {
+                $_SESSION[self::SESSION_FORCE_LOGOUT] = $forceLogout;
+            } else {
+                $this->clearSessionAuth();
+                Session::regenerate(true);
+            }
+        }
+
+        if ($this->cachedUser?->id === $userId) {
+            $this->resolved = false;
+            $this->cachedUser = null;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function loginRow(array $row, string $password, bool $remember): User
+    {
+        if (!\password_verify($password, (string) $row['password'])) {
+            throw new InvalidCredentialsException('Invalid credentials');
+        }
+
+        if (\password_needs_rehash((string) $row['password'], \PASSWORD_DEFAULT)) {
+            $newHash = \password_hash($password, \PASSWORD_DEFAULT);
+
+            if ($newHash !== false) {
+                $this->users->updatePassword((int) $row['id'], $newHash);
+                $row['password'] = $newHash;
+            }
+        }
+
+        if ($this->options['require_verified'] && (int) $row['verified'] !== 1) {
+            throw new EmailNotVerifiedException('The email address has not been verified yet');
+        }
+
+        if ($this->isDisabled($row)) {
+            throw new AccountDisabledException('This account is disabled');
+        }
+
+        $this->startSession();
+        Session::regenerate(true);
+        $this->setSessionUser($row, false);
+
+        if ($remember) {
+            $this->issueRememberCookie((int) $row['id']);
+        }
+
+        if ($this->options['update_last_login']) {
+            $this->users->updateLastLogin((int) $row['id']);
+        }
+
+        $row['last_login'] = \time();
+
+        $this->resolved = true;
+        $this->currentBearerToken = null;
+
+        return $this->cachedUser = User::fromRow($row);
+    }
+
+    private function userByBearerToken(string $token): ?User
+    {
+        $tokenRow = $this->tokens->findApi(self::hashToken($token));
+
+        if ($tokenRow === null) {
+            return null;
+        }
+
+        $userRow = $this->users->findById((int) $tokenRow['user']);
+
+        if ($userRow === null) {
+            $this->tokens->delete((int) $tokenRow['id']);
+
+            return null;
+        }
+
+        if ($this->isDisabled($userRow)) {
+            $this->tokens->delete((int) $tokenRow['id']);
+
+            return null;
+        }
+
+        $this->touchToken($tokenRow);
+
+        return User::fromRow($userRow);
+    }
+
+    private function processRememberCookie(): bool
+    {
+        $name = (string) $this->options['remember_cookie_name'];
+        $value = $_COOKIE[$name] ?? null;
+
+        if (!\is_string($value) || $value === '') {
+            return false;
+        }
+
+        $parts = \explode(self::REMEMBER_SEPARATOR, $value, 2);
+
+        if (\count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+            $this->deleteRememberCookie();
+
+            return false;
+        }
+
+        $tokenRow = $this->tokens->findRemember($parts[0]);
+
+        if ($tokenRow === null || !\hash_equals((string) $tokenRow['token'], self::hashToken($parts[1]))) {
+            $this->deleteRememberCookie();
+
+            return false;
+        }
+
+        $userRow = $this->users->findById((int) $tokenRow['user']);
+
+        if ($userRow === null || $this->isDisabled($userRow)) {
+            $this->deleteRememberCookie();
+
+            return false;
+        }
+
+        if ($this->options['require_verified'] && (int) $userRow['verified'] !== 1) {
+            $this->deleteRememberCookie();
+
+            return false;
+        }
+
+        $this->startSession();
+        Session::regenerate(true);
+        $this->setSessionUser($userRow, true);
+        $this->tokens->touch((int) $tokenRow['id']);
+
+        if ($this->options['update_last_login']) {
+            $this->users->updateLastLogin((int) $userRow['id']);
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function setSessionUser(array $row, bool $remembered): void
+    {
+        $_SESSION[self::SESSION_USER_ID] = (int) $row['id'];
+        $_SESSION[self::SESSION_FORCE_LOGOUT] = (int) ($row['force_logout'] ?? 0);
+        $_SESSION[self::SESSION_REMEMBERED] = $remembered;
+    }
+
+    private function clearSessionAuth(): void
+    {
+        if (!isset($_SESSION) || !\is_array($_SESSION)) {
+            return;
+        }
+
+        unset(
+            $_SESSION[self::SESSION_USER_ID],
+            $_SESSION[self::SESSION_FORCE_LOGOUT],
+            $_SESSION[self::SESSION_REMEMBERED],
+        );
+    }
+
+    private function issueRememberCookie(int $userId): void
+    {
+        $this->deleteRememberCookie();
+
+        $selector = \bin2hex(\random_bytes(12));
+        $token = self::randomToken(32);
+        $expires = \time() + (int) $this->options['remember_ttl'];
+
+        $this->tokens->createRemember(
+            $userId,
+            $selector,
+            self::hashToken($token),
+            $expires
+        );
+
+        Cookie::set(
+            (string) $this->options['remember_cookie_name'],
+            $selector . self::REMEMBER_SEPARATOR . $token,
+            $expires,
+            $this->rememberCookieOptions()
+        );
+    }
+
+    private function isCurrentUser(int $userId): bool
+    {
+        if (Session::isStarted() && (int) ($_SESSION[self::SESSION_USER_ID] ?? 0) === $userId) {
+            return true;
+        }
+
+        return $this->cachedUser?->id === $userId;
+    }
+
+    private function deleteRememberCookie(): void
+    {
+        $name = (string) $this->options['remember_cookie_name'];
+
+        if (!isset($_COOKIE[$name]) || !\is_string($_COOKIE[$name])) {
+            return;
+        }
+
+        $parts = \explode(self::REMEMBER_SEPARATOR, $_COOKIE[$name], 2);
+
+        if ($parts[0] !== '') {
+            $this->tokens->deleteBySelector($parts[0]);
+        }
+
+        Cookie::delete($name, $this->rememberCookieOptions());
+        unset($_COOKIE[$name]);
+    }
+
+    private function startSession(): void
+    {
+        if (Session::isStarted()) {
+            return;
+        }
+
+        Session::start((string) $this->options['session_name'], $this->sessionCookie);
+    }
+
+    private function hasSessionCookie(): bool
+    {
+        return isset($_COOKIE[(string) $this->options['session_name']]);
+    }
+
+    private function bearerToken(): ?string
+    {
+        $header = $_SERVER['HTTP_AUTHORIZATION']
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+            ?? null;
+
+        if ($header === null && \function_exists('getallheaders')) {
+            foreach (\getallheaders() as $name => $value) {
+                if (\strcasecmp((string) $name, 'Authorization') === 0) {
+                    $header = $value;
+                    break;
+                }
+            }
+        }
+
+        if (!\is_string($header)) {
+            return null;
+        }
+
+        if (!\preg_match('/^Bearer\s+(.+)$/i', \trim($header), $matches)) {
+            return null;
+        }
+
+        $token = \trim($matches[1]);
+
+        return $token !== '' ? $token : null;
+    }
+
+    /**
+     * @param array<string, mixed> $tokenRow
+     */
+    private function touchToken(array $tokenRow): void
+    {
+        $interval = (int) $this->options['touch_token_interval'];
+
+        if ($interval <= 0) {
+            return;
+        }
+
+        $lastUsed = isset($tokenRow['last_used']) ? (int) $tokenRow['last_used'] : 0;
+
+        if ($lastUsed + $interval <= \time()) {
+            $this->tokens->touch((int) $tokenRow['id']);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function isDisabled(array $row): bool
+    {
+        return $this->options['reject_non_normal_status']
+            && (int) ($row['status'] ?? Status::NORMAL) !== Status::NORMAL;
+    }
+
+    private function validateEmail(string $email): string
+    {
+        $email = \trim($email);
+
+        if ($email === '' || \filter_var($email, \FILTER_VALIDATE_EMAIL) === false) {
+            throw new InvalidEmailException('Invalid email address');
+        }
+
+        return $email;
+    }
+
+    private function validateNewPassword(string $password): void
+    {
+        if (\strlen($password) < (int) $this->options['min_password_length']) {
+            throw new InvalidPasswordException(
+                'Password must be at least ' . (int) $this->options['min_password_length'] . ' characters long'
+            );
+        }
+    }
+
+    /**
+     * @return array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null}
+     */
+    private function rememberCookieOptions(): array
+    {
+        return [
+            'path' => (string) $this->sessionCookie['path'],
+            'domain' => (string) $this->sessionCookie['domain'],
+            'secure' => (bool) $this->sessionCookie['secure'],
+            'httponly' => (bool) $this->sessionCookie['httponly'],
+            'samesite' => $this->sessionCookie['samesite'],
+        ];
+    }
+
+    private function isHttps(): bool
+    {
+        return (!empty($_SERVER['HTTPS']) && \strtolower((string) $_SERVER['HTTPS']) !== 'off')
+            || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+    }
+
+    private static function randomToken(int $bytes = 32): string
+    {
+        return \rtrim(\strtr(\base64_encode(\random_bytes($bytes)), '+/', '-_'), '=');
+    }
+
+    private static function hashToken(string $token): string
+    {
+        return \hash('sha256', $token);
+    }
+}
