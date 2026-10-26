@@ -50,19 +50,28 @@ CREATE TABLE `users_tokens` (
 
 ### Где хранятся сессии
 
-`Auth` использует **нативные PHP-сессии**, но хранилище можно выбрать на уровне
-конкретного приложения/экземпляра `Auth`, не трогая `php.ini`:
+Строкового выбора `storage=db|redis` нет. Хранилище — это объект, реализующий
+`SessionHandlerInterface`, и он передаётся в `Auth` опцией `session_handler`:
 
-- `session_handler = null` — используется то, что настроено в PHP; по умолчанию это
-  `session.save_handler=files`;
-- `session_handler = new PdoSessionHandler($pdo)` — сессии в БД;
-- `session_handler = new RedisSessionHandler($redis)` — сессии в Redis;
-- любой другой объект с `SessionHandlerInterface`.
+- `session_handler => null` — `Auth` не вызывает `session_set_save_handler()`;
+  PHP использует глобальный `session.save_handler` (обычно `files`);
+- `session_handler => new PdoSessionHandler($pdo, 'sessions')` — handler сам пишет
+  сериализованные данные в таблицу `sessions` через переданный PDO;
+- `session_handler => new RedisSessionHandler($redis)` — handler пишет в Redis
+  через переданное подключение;
+- `session_handler => $myHandler` — любой свой `SessionHandlerInterface`.
 
-`Auth` вызывает `session_set_save_handler()` перед `session_start()`, поэтому это
-per-request выбор, а не глобальная настройка. Ограничение нативных PHP-сессий:
-`$_SESSION` и handler глобальны в пределах запроса — два `Auth` с разными хранилищами
-в одном запросе не поддерживаются. Для полной изоляции нужен собственный слой сессий.
+Это объект, не строка: `['session_handler' => 'redis']` не сработает.
+
+Достаточно ли просто передать объект в опции? Да, но только пока сессия ещё не
+стартовала: `Auth` лениво вызывает `session_set_save_handler($handler, true)`
+непосредственно перед `session_start()`. Если сессия уже активна, опция игнорируется —
+handler нужно было установить раньше вручную.
+
+Это не изоляция на уровне объекта `Auth`: после старта handler действует глобально
+в текущем PHP-запросе. Поэтому один handler на запрос; два `Auth` с разными
+хранилищами в одном запросе не поддержать. Для полной изоляции нужен собственный
+слой сессий.
 
 `users_tokens` к сессиям отношения не имеет: там только bearer-токены и remember-me.
 Не складывайте сессии в `users_tokens`; для DB-backed сессий используется отдельная
