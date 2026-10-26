@@ -31,7 +31,8 @@
         "phpunit/phpunit": "^10"
     },
     "suggest": {
-        "karelwintersky/arris": "Arris µFramework"
+        "karelwintersky/arris": "Arris µFramework",
+        "ext-redis": "Required only for Arris\\Auth\\Session\\RedisSessionHandler"
     },
     "autoload": {
         "psr-4": {

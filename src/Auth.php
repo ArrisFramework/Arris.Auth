@@ -18,6 +18,7 @@ use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Repository\UserRepository;
 use PDO;
 use PDOException;
+use SessionHandlerInterface;
 
 final class Auth
 {
@@ -53,6 +54,7 @@ final class Auth
      *     db_schema?: string|null,
      *     session_name?: string,
      *     session_cookie?: array<string, mixed>,
+     *     session_handler?: SessionHandlerInterface|null,
      *     remember_cookie_name?: string,
      *     remember_ttl?: int,
      *     token_ttl?: int,
@@ -73,6 +75,7 @@ final class Auth
             'db_schema' => null,
             'session_name' => 'arris_auth',
             'session_cookie' => [],
+            'session_handler' => null,
             'remember_cookie_name' => 'arris_remember',
             'remember_ttl' => 60 * 60 * 24 * 30,
             'token_ttl' => 60 * 60 * 24 * 30,
@@ -115,6 +118,8 @@ final class Auth
 
     /**
      * Returns the underlying PDO connection.
+     *
+     * @return PDO
      */
     public function pdo(): PDO
     {
@@ -123,6 +128,8 @@ final class Auth
 
     /**
      * Returns the active authentication mode: auto, session or token.
+     *
+     * @return string
      */
     public function mode(): string
     {
@@ -184,6 +191,10 @@ final class Auth
 
     /**
      * Marks the user's email address as verified.
+     *
+     * @param int $userId
+     *
+     * @return void
      */
     public function verifyUser(int $userId): void
     {
@@ -214,6 +225,12 @@ final class Auth
 
     /**
      * Authenticates a user by username and password and starts a cookie session.
+     *
+     * @param string $username
+     * @param string $password
+     * @param bool $remember
+     *
+     * @return User
      *
      * @throws InvalidCredentialsException
      * @throws AmbiguousUsernameException
@@ -888,7 +905,11 @@ final class Auth
             return;
         }
 
-        Session::start((string) $this->options['session_name'], $this->sessionCookie);
+        Session::start(
+            (string) $this->options['session_name'],
+            $this->sessionCookie,
+            $this->options['session_handler']
+        );
     }
 
     /**

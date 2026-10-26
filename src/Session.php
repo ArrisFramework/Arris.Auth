@@ -6,6 +6,7 @@ namespace Arris\Auth;
 
 use Arris\Auth\Exception\ConfigurationException;
 use Arris\Auth\Exception\HeadersAlreadySentException;
+use SessionHandlerInterface;
 
 final class Session
 {
@@ -28,8 +29,9 @@ final class Session
      * Starts a PHP session if it is not active yet.
      *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $cookieOptions
+     * @param SessionHandlerInterface|null $handler custom session storage handler
      */
-    public static function start(string $name, array $cookieOptions = []): void
+    public static function start(string $name, array $cookieOptions = [], ?SessionHandlerInterface $handler = null): void
     {
         if (self::isStarted()) {
             return;
@@ -52,6 +54,10 @@ final class Session
             'httponly' => $cookieOptions['httponly'] ?? true,
             'samesite' => $cookieOptions['samesite'] ?? 'Lax',
         ]);
+
+        if ($handler !== null) {
+            \session_set_save_handler($handler, true);
+        }
 
         \session_start();
     }

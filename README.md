@@ -50,16 +50,23 @@ CREATE TABLE `users_tokens` (
 
 ### Где хранятся сессии
 
-`Auth` использует **нативные PHP-сессии**, а не собственную таблицу сессий. Конкретное
-хранилище задаёт PHP, а не пакет:
+`Auth` использует **нативные PHP-сессии**, но хранилище можно выбрать на уровне
+конкретного приложения/экземпляра `Auth`, не трогая `php.ini`:
 
-- по умолчанию `session.save_handler=files` — сессии лежат в файлах;
-- Redis/Memcached — через соответствующий `session.save_handler` из расширения PHP;
-- БД или другое хранилище — через свой `SessionHandlerInterface` и `session_set_save_handler()`.
+- `session_handler = null` — используется то, что настроено в PHP; по умолчанию это
+  `session.save_handler=files`;
+- `session_handler = new PdoSessionHandler($pdo)` — сессии в БД;
+- `session_handler = new RedisSessionHandler($redis)` — сессии в Redis;
+- любой другой объект с `SessionHandlerInterface`.
+
+`Auth` вызывает `session_set_save_handler()` перед `session_start()`, поэтому это
+per-request выбор, а не глобальная настройка. Ограничение нативных PHP-сессий:
+`$_SESSION` и handler глобальны в пределах запроса — два `Auth` с разными хранилищами
+в одном запросе не поддерживаются. Для полной изоляции нужен собственный слой сессий.
 
 `users_tokens` к сессиям отношения не имеет: там только bearer-токены и remember-me.
-Не складывайте сессии в `users_tokens`; для DB-backed сессий нужна отдельная таблица
-(например, `sessions`) и отдельный `SessionHandlerInterface`.
+Не складывайте сессии в `users_tokens`; для DB-backed сессий используется отдельная
+таблица `sessions`.
 
 ## Режимы
 
@@ -97,26 +104,38 @@ $auth = new Auth($pdo, ['mode' => 'token']);
 
 ### Своё хранилище сессий
 
-Пакет не вводит свой `SessionStorageInterface`: используйте стандартный
-`SessionHandlerInterface`. Его нужно установить до старта сессии, `Auth` делает это лениво:
+Пакет не вводит свой `SessionStorageInterface`: контракт — стандартный
+`SessionHandlerInterface`. Handler передаётся в `Auth` и устанавливается до старта сессии:
 
 ```php
-session_set_save_handler($handler, true);
+use Arris\Auth\Session\PdoSessionHandler;
 
-$auth = new Auth($pdo);
+$auth = new Auth($pdo, [
+    'session_handler' => new PdoSessionHandler($pdo, 'sessions'),
+]);
 ```
 
-Redis можно подключить без своего класса, средствами `ext-redis`:
+Для `PdoSessionHandler` нужна таблица `sessions(id, data, last_activity)` — она добавлена
+в `_database/schema.sql` как опциональная. Handler также реализует
+`SessionUpdateTimestampHandlerInterface`.
+
+Redis:
 
 ```php
-ini_set('session.save_handler', 'redis');
-ini_set('session.save_path', 'tcp://127.0.0.1:6379');
+use Arris\Auth\Session\RedisSessionHandler;
+use Redis;
+
+$redis = new Redis();
+$redis->connect('127.0.0.1', 6379);
+
+$auth = new Auth($pdo, [
+    'session_handler' => new RedisSessionHandler($redis),
+]);
 ```
 
-Для БД нужен handler, реализующий `SessionHandlerInterface`
-(`open/read/write/destroy/gc`) и таблица вида `sessions(id, data, last_activity)`.
-Опционально можно реализовать `SessionUpdateTimestampHandlerInterface` для ленивого
-обновления времени жизни сессии.
+`RedisSessionHandler` требует `ext-redis` и уже подключённый клиент. Вместо этих классов
+можно передать любой свой `SessionHandlerInterface`; для тестов достаточно in-memory
+реализации.
 
 ## Быстрый старт
 
@@ -290,6 +309,7 @@ final class AppRole extends \Arris\Auth\Role
 | `db_schema` | `null` | schema/database qualifier |
 | `session_name` | `arris_auth` | имя PHP-сессии |
 | `session_cookie` | `path=/`, `secure=auto`, `httponly=true`, `samesite=Lax` | параметры cookie сессии |
+| `session_handler` | `null` | `SessionHandlerInterface`; `null` — настройки PHP |
 | `remember_cookie_name` | `arris_remember` | имя remember-cookie |
 | `remember_ttl` | 30 дней | срок жизни remember-токена |
 | `token_ttl` | 30 дней | срок жизни bearer-токена; `0` — бессрочно |
@@ -312,4 +332,4 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 27 тестов, 57 assertions.
+Текущее состояние: 35 тестов, 94 assertions.
