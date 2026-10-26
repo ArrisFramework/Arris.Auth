@@ -13,6 +13,9 @@ final class Status
     public const PENDING_REVIEW = 4;
     public const SUSPENDED = 5;
 
+    /**
+     * The class is a constant holder; instantiation is not allowed.
+     */
     private function __construct()
     {
     }

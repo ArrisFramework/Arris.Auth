@@ -11,6 +11,9 @@ final class UserRepository
 {
     private string $table;
 
+    /**
+     * Creates a repository for the users table.
+     */
     public function __construct(
         private readonly PDO $pdo,
         ?string $schema = null,
@@ -20,6 +23,8 @@ final class UserRepository
     }
 
     /**
+     * Finds a user by primary key. Returns null when not found.
+     *
      * @return array<string, mixed>|null
      */
     public function findById(int $id): ?array
@@ -31,6 +36,8 @@ final class UserRepository
     }
 
     /**
+     * Finds a user by email address. Returns null when not found.
+     *
      * @return array<string, mixed>|null
      */
     public function findByEmail(string $email): ?array
@@ -42,7 +49,9 @@ final class UserRepository
     }
 
     /**
-     * Returns up to two rows so the caller can detect ambiguous usernames.
+     * Finds users by username, returning up to two rows.
+     *
+     * Two rows let the caller detect an ambiguous username.
      *
      * @return list<array<string, mixed>>
      */
@@ -59,6 +68,9 @@ final class UserRepository
         return $rows;
     }
 
+    /**
+     * Inserts a new user and returns the generated user ID.
+     */
     public function create(
         string $email,
         string $passwordHash,
@@ -86,6 +98,9 @@ final class UserRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Updates the user's last_login timestamp.
+     */
     public function updateLastLogin(int $id): void
     {
         $statement = $this->pdo->prepare(
@@ -94,6 +109,9 @@ final class UserRepository
         $statement->execute([\time(), $id]);
     }
 
+    /**
+     * Replaces the user's password hash.
+     */
     public function updatePassword(int $id, string $passwordHash): void
     {
         $statement = $this->pdo->prepare(
@@ -102,6 +120,9 @@ final class UserRepository
         $statement->execute([$passwordHash, $id]);
     }
 
+    /**
+     * Sets the verified flag for a user.
+     */
     public function setVerified(int $id, bool $verified): void
     {
         $statement = $this->pdo->prepare(
@@ -110,6 +131,11 @@ final class UserRepository
         $statement->execute([$verified ? 1 : 0, $id]);
     }
 
+    /**
+     * Increments force_logout and returns the new value.
+     *
+     * Existing sessions compare their stored counter with this value.
+     */
     public function incrementForceLogout(int $id): int
     {
         $statement = $this->pdo->prepare(
@@ -122,6 +148,9 @@ final class UserRepository
         return (int) ($row['force_logout'] ?? 0);
     }
 
+    /**
+     * Deletes a user by ID.
+     */
     public function delete(int $id): void
     {
         $statement = $this->pdo->prepare("DELETE FROM {$this->table} WHERE id = ?");
@@ -129,6 +158,8 @@ final class UserRepository
     }
 
     /**
+     * Executes a query and returns the first row as an associative array.
+     *
      * @param list<int|string> $params
      * @return array<string, mixed>|null
      */

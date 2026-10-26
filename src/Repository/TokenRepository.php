@@ -14,6 +14,9 @@ final class TokenRepository
 
     private string $table;
 
+    /**
+     * Creates a repository for the users_tokens table.
+     */
     public function __construct(
         private readonly PDO $pdo,
         ?string $schema = null,
@@ -22,6 +25,9 @@ final class TokenRepository
         $this->table = TableName::make('users_tokens', $schema, $prefix);
     }
 
+    /**
+     * Stores a new bearer token hash and returns the generated row ID.
+     */
     public function createApi(int $userId, string $tokenHash, int $expires, ?string $name = null): int
     {
         $statement = $this->pdo->prepare(
@@ -42,6 +48,9 @@ final class TokenRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Stores a new remember-me token and returns the generated row ID.
+     */
     public function createRemember(int $userId, string $selector, string $tokenHash, int $expires): int
     {
         $statement = $this->pdo->prepare(
@@ -63,6 +72,8 @@ final class TokenRepository
     }
 
     /**
+     * Finds a non-expired bearer token by its hash.
+     *
      * @return array<string, mixed>|null
      */
     public function findApi(string $tokenHash): ?array
@@ -76,6 +87,8 @@ final class TokenRepository
     }
 
     /**
+     * Finds a non-expired remember-me token by selector.
+     *
      * @return array<string, mixed>|null
      */
     public function findRemember(string $selector): ?array
@@ -88,6 +101,9 @@ final class TokenRepository
         );
     }
 
+    /**
+     * Updates the token's last_used timestamp.
+     */
     public function touch(int $id): void
     {
         $statement = $this->pdo->prepare(
@@ -96,6 +112,9 @@ final class TokenRepository
         $statement->execute([\time(), $id]);
     }
 
+    /**
+     * Deletes a token by ID. Returns true when a row was removed.
+     */
     public function delete(int $id): bool
     {
         $statement = $this->pdo->prepare("DELETE FROM {$this->table} WHERE id = ?");
@@ -104,6 +123,11 @@ final class TokenRepository
         return $statement->rowCount() > 0;
     }
 
+    /**
+     * Deletes tokens by hash, optionally filtered by kind.
+     *
+     * Returns the number of deleted rows.
+     */
     public function deleteByHash(string $tokenHash, ?string $kind = null): int
     {
         if ($kind !== null) {
@@ -121,6 +145,11 @@ final class TokenRepository
         return $statement->rowCount();
     }
 
+    /**
+     * Deletes remember-me tokens by selector.
+     *
+     * Returns the number of deleted rows.
+     */
     public function deleteBySelector(string $selector): int
     {
         $statement = $this->pdo->prepare(
@@ -131,6 +160,11 @@ final class TokenRepository
         return $statement->rowCount();
     }
 
+    /**
+     * Deletes all tokens of a user, optionally filtered by kind.
+     *
+     * Returns the number of deleted rows.
+     */
     public function deleteByUser(int $userId, ?string $kind = null): int
     {
         if ($kind !== null) {
@@ -150,6 +184,9 @@ final class TokenRepository
         return $statement->rowCount();
     }
 
+    /**
+     * Deletes expired tokens and returns the number of deleted rows.
+     */
     public function deleteExpired(): int
     {
         $statement = $this->pdo->prepare(
@@ -161,6 +198,8 @@ final class TokenRepository
     }
 
     /**
+     * Executes a query and returns the first row as an associative array.
+     *
      * @param list<int|string> $params
      * @return array<string, mixed>|null
      */

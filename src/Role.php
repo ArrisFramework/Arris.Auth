@@ -29,11 +29,16 @@ final class Role
     public const SUPER_MODERATOR = 1048576;
     public const TRANSLATOR = 2097152;
 
+    /**
+     * The class is a constant holder; instantiation is not allowed.
+     */
     private function __construct()
     {
     }
 
     /**
+     * Returns a map of role values to role names.
+     *
      * @return array<int, string> role value => role name
      */
     public static function getMap(): array
@@ -42,6 +47,8 @@ final class Role
     }
 
     /**
+     * Returns all role names in declaration order.
+     *
      * @return list<string>
      */
     public static function getNames(): array
@@ -50,6 +57,8 @@ final class Role
     }
 
     /**
+     * Returns all role bit values in declaration order.
+     *
      * @return list<int>
      */
     public static function getValues(): array

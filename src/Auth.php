@@ -45,6 +45,8 @@ final class Auth
     private ?string $currentBearerToken = null;
 
     /**
+     * Creates an authentication service for the given PDO connection.
+     *
      * @param array{
      *     mode?: string,
      *     table_prefix?: string,
@@ -111,16 +113,33 @@ final class Auth
         );
     }
 
+    /**
+     * Returns the underlying PDO connection.
+     */
     public function pdo(): PDO
     {
         return $this->pdo;
     }
 
+    /**
+     * Returns the active authentication mode: auto, session or token.
+     */
     public function mode(): string
     {
         return $this->options['mode'];
     }
 
+    /**
+     * Registers a new user account.
+     *
+     * Validates the email address and password, hashes the password with
+     * password_hash() and returns the generated user ID.
+     *
+     * @throws InvalidEmailException
+     * @throws InvalidPasswordException
+     * @throws UserAlreadyExistsException
+     * @throws AuthException
+     */
     public function register(
         string $email,
         string $password,
@@ -163,11 +182,24 @@ final class Auth
         }
     }
 
+    /**
+     * Marks the user's email address as verified.
+     */
     public function verifyUser(int $userId): void
     {
         $this->users->setVerified($userId, true);
     }
 
+    /**
+     * Authenticates a user by email and password and starts a cookie session.
+     *
+     * When $remember is true, a long-lived remember-me cookie is created as well.
+     *
+     * @throws InvalidEmailException
+     * @throws InvalidCredentialsException
+     * @throws EmailNotVerifiedException
+     * @throws AccountDisabledException
+     */
     public function login(string $email, string $password, bool $remember = false): User
     {
         $row = $this->users->findByEmail($this->validateEmail($email));
@@ -179,6 +211,14 @@ final class Auth
         return $this->loginRow($row, $password, $remember);
     }
 
+    /**
+     * Authenticates a user by username and password and starts a cookie session.
+     *
+     * @throws InvalidCredentialsException
+     * @throws AmbiguousUsernameException
+     * @throws EmailNotVerifiedException
+     * @throws AccountDisabledException
+     */
     public function loginWithUsername(string $username, string $password, bool $remember = false): User
     {
         $rows = $this->users->findByUsername(\trim($username));
@@ -194,6 +234,13 @@ final class Auth
         return $this->loginRow($rows[0], $password, $remember);
     }
 
+    /**
+     * Returns the currently authenticated user, or null.
+     *
+     * Depending on the mode, the user is resolved from the Authorization:
+     * Bearer header first, then from the PHP session and the remember-me cookie.
+     * The result is cached for the lifetime of the current request.
+     */
     public function user(): ?User
     {
         if ($this->resolved) {
@@ -270,47 +317,79 @@ final class Auth
         return $this->cachedUser = User::fromRow($row);
     }
 
+    /**
+     * Returns whether a user is currently authenticated.
+     */
     public function check(): bool
     {
         return $this->user() !== null;
     }
 
+    /**
+     * Returns the current user ID, or null when nobody is authenticated.
+     */
     public function id(): ?int
     {
         return $this->user()?->id;
     }
 
+    /**
+     * Returns the current user's email address, or null.
+     */
     public function email(): ?string
     {
         return $this->user()?->email;
     }
 
+    /**
+     * Returns the current user's username, or null.
+     */
     public function username(): ?string
     {
         return $this->user()?->username;
     }
 
+    /**
+     * Returns whether the current session was restored from a remember-me cookie.
+     */
     public function isRemembered(): bool
     {
         return Session::isStarted()
             && ($_SESSION[self::SESSION_REMEMBERED] ?? false) === true;
     }
 
+    /**
+     * Checks whether the current user has the given role bit.
+     */
     public function hasRole(int $role): bool
     {
         return $this->user()?->hasRole($role) ?? false;
     }
 
+    /**
+     * Checks whether the current user has at least one of the given role bits.
+     */
     public function hasAnyRole(int ...$roles): bool
     {
         return $this->user()?->hasAnyRole(...$roles) ?? false;
     }
 
+    /**
+     * Checks whether the current user has all of the given role bits.
+     */
     public function hasAllRoles(int ...$roles): bool
     {
         return $this->user()?->hasAllRoles(...$roles) ?? false;
     }
 
+    /**
+     * Issues a new opaque bearer token for a user.
+     *
+     * The plain token is returned once and is never stored. Only its SHA-256
+     * hash is written to the users_tokens table.
+     *
+     * @throws UnknownUserException
+     */
     public function issueToken(int $userId, ?int $ttl = null, ?string $name = null): string
     {
         if ($this->users->findById($userId) === null) {
@@ -331,6 +410,11 @@ final class Auth
         return $token;
     }
 
+    /**
+     * Revokes a bearer token by its plain value.
+     *
+     * Returns true when a token row was deleted.
+     */
     public function revokeToken(string $token): bool
     {
         return $this->tokens->deleteByHash(
@@ -339,16 +423,29 @@ final class Auth
         ) > 0;
     }
 
+    /**
+     * Revokes all bearer and remember-me tokens of a user.
+     *
+     * Returns the number of deleted token rows.
+     */
     public function revokeAllTokens(int $userId): int
     {
         return $this->tokens->deleteByUser($userId);
     }
 
+    /**
+     * Deletes expired bearer and remember-me tokens.
+     *
+     * Returns the number of deleted token rows.
+     */
     public function deleteExpiredTokens(): int
     {
         return $this->tokens->deleteExpired();
     }
 
+    /**
+     * Logs out the current session and revokes the current bearer token, if any.
+     */
     public function logout(): void
     {
         $bearer = $this->currentBearerToken ?? $this->bearerToken();
@@ -372,6 +469,12 @@ final class Auth
         $this->currentBearerToken = null;
     }
 
+    /**
+     * Invalidates every session and token of a user.
+     *
+     * Increments users.force_logout so existing sessions are rejected on their
+     * next request, and deletes all users_tokens rows for the user.
+     */
     public function logoutEverywhere(int $userId): void
     {
         $this->users->incrementForceLogout($userId);
@@ -393,6 +496,14 @@ final class Auth
         }
     }
 
+    /**
+     * Updates a user's password and invalidates existing sessions and tokens.
+     *
+     * When $keepCurrentSession is true, the current cookie session remains valid.
+     *
+     * @throws InvalidPasswordException
+     * @throws AuthException
+     */
     public function changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void
     {
         $this->validateNewPassword($newPassword);
@@ -426,6 +537,8 @@ final class Auth
     }
 
     /**
+     * Authenticates a user database row and creates a session.
+     *
      * @param array<string, mixed> $row
      */
     private function loginRow(array $row, string $password, bool $remember): User
@@ -471,6 +584,11 @@ final class Auth
         return $this->cachedUser = User::fromRow($row);
     }
 
+    /**
+     * Resolves a user by a plain bearer token.
+     *
+     * Deletes the token row when the user no longer exists or is disabled.
+     */
     private function userByBearerToken(string $token): ?User
     {
         $tokenRow = $this->tokens->findApi(self::hashToken($token));
@@ -498,6 +616,11 @@ final class Auth
         return User::fromRow($userRow);
     }
 
+    /**
+     * Tries to authenticate from the remember-me cookie.
+     *
+     * Returns true when a session was created.
+     */
     private function processRememberCookie(): bool
     {
         $name = (string) $this->options['remember_cookie_name'];
@@ -550,6 +673,8 @@ final class Auth
     }
 
     /**
+     * Stores the authenticated user's ID and force-logout counter in the session.
+     *
      * @param array<string, mixed> $row
      */
     private function setSessionUser(array $row, bool $remembered): void
@@ -559,6 +684,11 @@ final class Auth
         $_SESSION[self::SESSION_REMEMBERED] = $remembered;
     }
 
+    /**
+     * Removes authentication fields from the current session.
+     *
+     * Other session data is left untouched.
+     */
     private function clearSessionAuth(): void
     {
         if (!isset($_SESSION) || !\is_array($_SESSION)) {
@@ -572,6 +702,9 @@ final class Auth
         );
     }
 
+    /**
+     * Creates a remember-me token row and writes the corresponding HttpOnly cookie.
+     */
     private function issueRememberCookie(int $userId): void
     {
         $this->deleteRememberCookie();
@@ -595,6 +728,9 @@ final class Auth
         );
     }
 
+    /**
+     * Checks whether the given user ID belongs to the current session or cached user.
+     */
     private function isCurrentUser(int $userId): bool
     {
         if (Session::isStarted() && (int) ($_SESSION[self::SESSION_USER_ID] ?? 0) === $userId) {
@@ -604,6 +740,9 @@ final class Auth
         return $this->cachedUser?->id === $userId;
     }
 
+    /**
+     * Deletes the current remember-me cookie and its database row, if present.
+     */
     private function deleteRememberCookie(): void
     {
         $name = (string) $this->options['remember_cookie_name'];
@@ -622,6 +761,9 @@ final class Auth
         unset($_COOKIE[$name]);
     }
 
+    /**
+     * Starts the PHP session with the configured name and cookie parameters.
+     */
     private function startSession(): void
     {
         if (Session::isStarted()) {
@@ -631,11 +773,17 @@ final class Auth
         Session::start((string) $this->options['session_name'], $this->sessionCookie);
     }
 
+    /**
+     * Returns whether the request contains the configured session cookie.
+     */
     private function hasSessionCookie(): bool
     {
         return isset($_COOKIE[(string) $this->options['session_name']]);
     }
 
+    /**
+     * Extracts a Bearer token from the Authorization header, if present.
+     */
     private function bearerToken(): ?string
     {
         $header = $_SERVER['HTTP_AUTHORIZATION']
@@ -665,6 +813,8 @@ final class Auth
     }
 
     /**
+     * Updates the token's last_used timestamp no more often than touch_token_interval.
+     *
      * @param array<string, mixed> $tokenRow
      */
     private function touchToken(array $tokenRow): void
@@ -683,6 +833,8 @@ final class Auth
     }
 
     /**
+     * Returns whether the user status is not allowed by the current policy.
+     *
      * @param array<string, mixed> $row
      */
     private function isDisabled(array $row): bool
@@ -691,6 +843,11 @@ final class Auth
             && (int) ($row['status'] ?? Status::NORMAL) !== Status::NORMAL;
     }
 
+    /**
+     * Trims and validates an email address and returns the normalized address.
+     *
+     * @throws InvalidEmailException
+     */
     private function validateEmail(string $email): string
     {
         $email = \trim($email);
@@ -702,6 +859,11 @@ final class Auth
         return $email;
     }
 
+    /**
+     * Validates a new password against the configured minimum length.
+     *
+     * @throws InvalidPasswordException
+     */
     private function validateNewPassword(string $password): void
     {
         if (\strlen($password) < (int) $this->options['min_password_length']) {
@@ -712,6 +874,8 @@ final class Auth
     }
 
     /**
+     * Returns cookie options shared by the session and remember-me cookies.
+     *
      * @return array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null}
      */
     private function rememberCookieOptions(): array
@@ -725,17 +889,26 @@ final class Auth
         ];
     }
 
+    /**
+     * Detects whether the current request was made over HTTPS.
+     */
     private function isHttps(): bool
     {
         return (!empty($_SERVER['HTTPS']) && \strtolower((string) $_SERVER['HTTPS']) !== 'off')
             || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
     }
 
+    /**
+     * Generates a URL-safe random token from cryptographically secure bytes.
+     */
     private static function randomToken(int $bytes = 32): string
     {
         return \rtrim(\strtr(\base64_encode(\random_bytes($bytes)), '+/', '-_'), '=');
     }
 
+    /**
+     * Returns the SHA-256 hash used to store tokens at rest.
+     */
     private static function hashToken(string $token): string
     {
         return \hash('sha256', $token);

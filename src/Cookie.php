@@ -9,11 +9,16 @@ use Arris\Auth\Exception\HeadersAlreadySentException;
 
 final class Cookie
 {
+    /**
+     * The class is static; instantiation is not allowed.
+     */
     private function __construct()
     {
     }
 
     /**
+     * Sends a cookie with the given value, expiry time and options.
+     *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $options
      */
     public static function set(string $name, string $value, int $expires, array $options = []): void
@@ -33,6 +38,8 @@ final class Cookie
     }
 
     /**
+     * Expires a cookie on the client and removes it from $_COOKIE.
+     *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $options
      */
     public static function delete(string $name, array $options = []): void
@@ -43,6 +50,8 @@ final class Cookie
     }
 
     /**
+     * Validates and normalizes cookie options, including SameSite and __Host- rules.
+     *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $options
      * @return array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null}
      */
@@ -77,6 +86,11 @@ final class Cookie
         return $normalized;
     }
 
+    /**
+     * Throws when headers have already been sent and a cookie cannot be written.
+     *
+     * @throws HeadersAlreadySentException
+     */
     private static function assertHeadersNotSent(): void
     {
         if (\headers_sent($file, $line)) {

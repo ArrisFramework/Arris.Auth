@@ -9,16 +9,24 @@ use Arris\Auth\Exception\HeadersAlreadySentException;
 
 final class Session
 {
+    /**
+     * The class is static; instantiation is not allowed.
+     */
     private function __construct()
     {
     }
 
+    /**
+     * Returns whether a PHP session is currently active.
+     */
     public static function isStarted(): bool
     {
         return \session_status() === \PHP_SESSION_ACTIVE;
     }
 
     /**
+     * Starts a PHP session if it is not active yet.
+     *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $cookieOptions
      */
     public static function start(string $name, array $cookieOptions = []): void
@@ -48,26 +56,43 @@ final class Session
         \session_start();
     }
 
+    /**
+     * Reads a value from the active session.
+     */
     public static function get(string $key, mixed $default = null): mixed
     {
         return $_SESSION[$key] ?? $default;
     }
 
+    /**
+     * Writes a value to the active session.
+     */
     public static function set(string $key, mixed $value): void
     {
         $_SESSION[$key] = $value;
     }
 
+    /**
+     * Removes a value from the active session.
+     */
     public static function remove(string $key): void
     {
         unset($_SESSION[$key]);
     }
 
+    /**
+     * Returns the current session ID.
+     */
     public static function id(): string
     {
         return \session_id();
     }
 
+    /**
+     * Regenerates the session ID to prevent session fixation.
+     *
+     * Returns false when no session is active.
+     */
     public static function regenerate(bool $deleteOldSession = true): bool
     {
         if (!self::isStarted()) {
@@ -78,6 +103,8 @@ final class Session
     }
 
     /**
+     * Destroys the active session and deletes the session cookie.
+     *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $cookieOptions
      */
     public static function destroy(array $cookieOptions = []): void

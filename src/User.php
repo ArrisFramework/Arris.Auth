@@ -6,6 +6,9 @@ namespace Arris\Auth;
 
 final readonly class User
 {
+    /**
+     * Creates a read-only user value object from explicit field values.
+     */
     public function __construct(
         public int $id,
         public string $email,
@@ -22,6 +25,8 @@ final readonly class User
     }
 
     /**
+     * Creates a user object from a database row.
+     *
      * @param array<string, mixed> $row
      */
     public static function fromRow(array $row): self
@@ -41,46 +46,73 @@ final readonly class User
         );
     }
 
+    /**
+     * Returns whether the user's email address has been verified.
+     */
     public function isVerified(): bool
     {
         return $this->verified === 1;
     }
 
+    /**
+     * Returns whether the account status is normal.
+     */
     public function isNormal(): bool
     {
         return $this->status === Status::NORMAL;
     }
 
+    /**
+     * Returns whether the account is archived.
+     */
     public function isArchived(): bool
     {
         return $this->status === Status::ARCHIVED;
     }
 
+    /**
+     * Returns whether the account is banned.
+     */
     public function isBanned(): bool
     {
         return $this->status === Status::BANNED;
     }
 
+    /**
+     * Returns whether the account is locked.
+     */
     public function isLocked(): bool
     {
         return $this->status === Status::LOCKED;
     }
 
+    /**
+     * Returns whether the account is pending review.
+     */
     public function isPendingReview(): bool
     {
         return $this->status === Status::PENDING_REVIEW;
     }
 
+    /**
+     * Returns whether the account is suspended.
+     */
     public function isSuspended(): bool
     {
         return $this->status === Status::SUSPENDED;
     }
 
+    /**
+     * Checks whether the role bit is present in the user's role mask.
+     */
     public function hasRole(int $role): bool
     {
         return ($this->rolesMask & $role) === $role;
     }
 
+    /**
+     * Checks whether at least one of the given role bits is present.
+     */
     public function hasAnyRole(int ...$roles): bool
     {
         foreach ($roles as $role) {
@@ -92,6 +124,9 @@ final readonly class User
         return false;
     }
 
+    /**
+     * Checks whether all of the given role bits are present.
+     */
     public function hasAllRoles(int ...$roles): bool
     {
         foreach ($roles as $role) {
@@ -104,6 +139,8 @@ final readonly class User
     }
 
     /**
+     * Returns the names of all roles present in the role mask.
+     *
      * @return list<string>
      */
     public function roleNames(): array
@@ -121,6 +158,8 @@ final readonly class User
     }
 
     /**
+     * Exports the user fields as an associative array.
+     *
      * @return array<string, mixed>
      */
     public function toArray(): array
