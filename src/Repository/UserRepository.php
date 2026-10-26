@@ -121,6 +121,17 @@ final class UserRepository
     }
 
     /**
+     * Replaces the user's role bitmask.
+     */
+    public function updateRolesMask(int $id, int $rolesMask): void
+    {
+        $statement = $this->pdo->prepare(
+            "UPDATE {$this->table} SET roles_mask = ? WHERE id = ?"
+        );
+        $statement->execute([$rolesMask, $id]);
+    }
+
+    /**
      * Sets the verified flag for a user.
      */
     public function setVerified(int $id, bool $verified): void

@@ -180,6 +180,13 @@ $auth->hasRole(int $role): bool;
 $auth->hasAnyRole(int ...$roles): bool;
 $auth->hasAllRoles(int ...$roles): bool;
 
+$auth->roles(int $userId): int;
+$auth->roleNamesForUser(int $userId, ?array $map = null): array;
+$auth->addRole(int $userId, int $role): int;
+$auth->removeRole(int $userId, int $role): int;
+$auth->setRole(int $userId, int $role): int;
+$auth->setRoles(int $userId, int $rolesMask): int;
+
 $auth->issueToken(int $userId, ?int $ttl = null, ?string $name = null): string;
 $auth->revokeToken(string $token): bool;
 $auth->revokeAllTokens(int $userId): int;
@@ -197,8 +204,35 @@ $auth->pdo(): PDO;
 `rolesMask`, `registered`, `lastLogin`, `forceLogout`, `properties`, плюс `isNormal()`,
 `isBanned()`, `hasRole()`, `roleNames()`, `toArray()`.
 
-Константы ролей и статусов совместимы с `arris.delight-php-auth`:
-`Arris\Auth\Role`, `Arris\Auth\Status`.
+Значения ролей совместимы с `arris.delight-php-auth`: `Arris\Auth\Role` — не final,
+его можно расширить в приложении. `Arris\Auth\Status` — backed enum; для записи в БД
+используется `Status::NORMAL->value`.
+
+```php
+final class AppRole extends \Arris\Auth\Role
+{
+    public const BANNED = 4194304;
+    public const VIEWER = \Arris\Auth\Role::CONSUMER;
+    public const GAME_MASTER = \Arris\Auth\Role::COORDINATOR;
+    public const PLAYER = \Arris\Auth\Role::SUBSCRIBER;
+    public const OBSERVER = \Arris\Auth\Role::MANAGER;
+
+    public static function map(): array
+    {
+        return [
+            'BANNED' => self::BANNED,
+            'VIEWER' => self::VIEWER,
+            'GAME_MASTER' => self::GAME_MASTER,
+            'PLAYER' => self::PLAYER,
+            'OBSERVER' => self::OBSERVER,
+        ];
+    }
+}
+```
+
+`map()` возвращает `name => bit`; `AppRole::id('GAME_MASTER')`, `AppRole::names($mask)`
+и `$user->roleNames(AppRole::map())` работают без switch и reflection. Если несколько
+имён ссылаются на один бит, `getMap()` схлопнет их, а `names()` вернёт все имена.
 
 ## Опции конструктора
 

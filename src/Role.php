@@ -4,7 +4,13 @@ declare(strict_types=1);
 
 namespace Arris\Auth;
 
-final class Role
+/**
+ * Base role bitmask constants.
+ *
+ * Applications may extend this class and override map() to define their own
+ * role names or aliases while reusing the base bit values.
+ */
+class Role
 {
     public const ADMIN = 1;
     public const AUTHOR = 2;
@@ -37,32 +43,96 @@ final class Role
     }
 
     /**
-     * Returns a map of role values to role names.
+     * Returns role names mapped to their bit values.
      *
-     * @return array<int, string> role value => role name
+     * Override this method in an application-specific subclass to define
+     * custom names or aliases for the base bits.
+     *
+     * @return array<string, int>
      */
-    public static function getMap(): array
+    public static function map(): array
     {
-        return \array_flip((new \ReflectionClass(self::class))->getConstants());
+        return [
+            'ADMIN' => self::ADMIN,
+            'AUTHOR' => self::AUTHOR,
+            'COLLABORATOR' => self::COLLABORATOR,
+            'CONSULTANT' => self::CONSULTANT,
+            'CONSUMER' => self::CONSUMER,
+            'CONTRIBUTOR' => self::CONTRIBUTOR,
+            'COORDINATOR' => self::COORDINATOR,
+            'CREATOR' => self::CREATOR,
+            'DEVELOPER' => self::DEVELOPER,
+            'DIRECTOR' => self::DIRECTOR,
+            'EDITOR' => self::EDITOR,
+            'EMPLOYEE' => self::EMPLOYEE,
+            'MAINTAINER' => self::MAINTAINER,
+            'MANAGER' => self::MANAGER,
+            'MODERATOR' => self::MODERATOR,
+            'PUBLISHER' => self::PUBLISHER,
+            'REVIEWER' => self::REVIEWER,
+            'SUBSCRIBER' => self::SUBSCRIBER,
+            'SUPER_ADMIN' => self::SUPER_ADMIN,
+            'SUPER_EDITOR' => self::SUPER_EDITOR,
+            'SUPER_MODERATOR' => self::SUPER_MODERATOR,
+            'TRANSLATOR' => self::TRANSLATOR,
+        ];
     }
 
     /**
-     * Returns all role names in declaration order.
+     * Returns the bit value for a role name, or null when the name is unknown.
+     */
+    public static function id(string $name): ?int
+    {
+        return static::map()[$name] ?? null;
+    }
+
+    /**
+     * Returns the names of all roles present in the given bitmask.
+     *
+     * @return list<string>
+     */
+    public static function names(int $mask): array
+    {
+        $names = [];
+
+        foreach (static::map() as $name => $bit) {
+            if (($mask & $bit) === $bit) {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Returns role bit values mapped to role names.
+     *
+     * Aliases with the same bit value collapse to a single name.
+     *
+     * @return array<int, string>
+     */
+    public static function getMap(): array
+    {
+        return \array_flip(static::map());
+    }
+
+    /**
+     * Returns all role names.
      *
      * @return list<string>
      */
     public static function getNames(): array
     {
-        return \array_keys((new \ReflectionClass(self::class))->getConstants());
+        return \array_keys(static::map());
     }
 
     /**
-     * Returns all role bit values in declaration order.
+     * Returns all role bit values.
      *
      * @return list<int>
      */
     public static function getValues(): array
     {
-        return \array_values((new \ReflectionClass(self::class))->getConstants());
+        return \array_values(static::map());
     }
 }

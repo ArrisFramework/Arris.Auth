@@ -169,7 +169,7 @@ final class Auth
                 $email,
                 $passwordHash,
                 $username,
-                Status::NORMAL,
+                Status::NORMAL->value,
                 $verified ? 1 : 0,
                 $rolesMask
             );
@@ -380,6 +380,90 @@ final class Auth
     public function hasAllRoles(int ...$roles): bool
     {
         return $this->user()?->hasAllRoles(...$roles) ?? false;
+    }
+
+    /**
+     * Replaces all roles of a user with a single role bit.
+     *
+     * Returns the new role bitmask.
+     *
+     * @throws UnknownUserException
+     */
+    public function setRole(int $userId, int $role): int
+    {
+        return $this->setRoles($userId, $role);
+    }
+
+    /**
+     * Replaces the user's role bitmask.
+     *
+     * Returns the new role bitmask.
+     *
+     * @throws UnknownUserException
+     */
+    public function setRoles(int $userId, int $rolesMask): int
+    {
+        $this->requireUser($userId);
+        $this->users->updateRolesMask($userId, $rolesMask);
+        $this->invalidateCachedUser($userId);
+
+        return $rolesMask;
+    }
+
+    /**
+     * Adds role bits to the user's role mask.
+     *
+     * Returns the new role bitmask.
+     *
+     * @throws UnknownUserException
+     */
+    public function addRole(int $userId, int $role): int
+    {
+        $row = $this->requireUser($userId);
+        $rolesMask = (int) ($row['roles_mask'] ?? 0) | $role;
+        $this->users->updateRolesMask($userId, $rolesMask);
+        $this->invalidateCachedUser($userId);
+
+        return $rolesMask;
+    }
+
+    /**
+     * Removes role bits from the user's role mask.
+     *
+     * Returns the new role bitmask.
+     *
+     * @throws UnknownUserException
+     */
+    public function removeRole(int $userId, int $role): int
+    {
+        $row = $this->requireUser($userId);
+        $rolesMask = (int) ($row['roles_mask'] ?? 0) & ~$role;
+        $this->users->updateRolesMask($userId, $rolesMask);
+        $this->invalidateCachedUser($userId);
+
+        return $rolesMask;
+    }
+
+    /**
+     * Returns the user's role bitmask.
+     *
+     * @throws UnknownUserException
+     */
+    public function roles(int $userId): int
+    {
+        return (int) ($this->requireUser($userId)['roles_mask'] ?? 0);
+    }
+
+    /**
+     * Returns the role names of a user.
+     *
+     * @param array<string, int>|null $map
+     * @return list<string>
+     * @throws UnknownUserException
+     */
+    public function roleNamesForUser(int $userId, ?array $map = null): array
+    {
+        return User::fromRow($this->requireUser($userId))->roleNames($map);
     }
 
     /**
@@ -729,6 +813,34 @@ final class Auth
     }
 
     /**
+     * Returns a user row or throws when the user does not exist.
+     *
+     * @return array<string, mixed>
+     * @throws UnknownUserException
+     */
+    private function requireUser(int $userId): array
+    {
+        $row = $this->users->findById($userId);
+
+        if ($row === null) {
+            throw new UnknownUserException('Unknown user');
+        }
+
+        return $row;
+    }
+
+    /**
+     * Clears the cached user when the changed user is the current one.
+     */
+    private function invalidateCachedUser(int $userId): void
+    {
+        if ($this->cachedUser?->id === $userId) {
+            $this->resolved = false;
+            $this->cachedUser = null;
+        }
+    }
+
+    /**
      * Checks whether the given user ID belongs to the current session or cached user.
      */
     private function isCurrentUser(int $userId): bool
@@ -840,7 +952,7 @@ final class Auth
     private function isDisabled(array $row): bool
     {
         return $this->options['reject_non_normal_status']
-            && (int) ($row['status'] ?? Status::NORMAL) !== Status::NORMAL;
+            && (int) ($row['status'] ?? Status::NORMAL->value) !== Status::NORMAL->value;
     }
 
     /**

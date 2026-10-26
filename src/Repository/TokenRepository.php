@@ -16,6 +16,10 @@ final class TokenRepository
 
     /**
      * Creates a repository for the users_tokens table.
+     *
+     * @param PDO $pdo
+     * @param string|null $schema
+     * @param string $prefix
      */
     public function __construct(
         private readonly PDO $pdo,
@@ -27,6 +31,13 @@ final class TokenRepository
 
     /**
      * Stores a new bearer token hash and returns the generated row ID.
+     *
+     * @param int $userId
+     * @param string $tokenHash
+     * @param int $expires
+     * @param string|null $name
+     *
+     * @return int
      */
     public function createApi(int $userId, string $tokenHash, int $expires, ?string $name = null): int
     {
@@ -50,6 +61,13 @@ final class TokenRepository
 
     /**
      * Stores a new remember-me token and returns the generated row ID.
+     *
+     * @param int $userId
+     * @param string $selector
+     * @param string $tokenHash
+     * @param int $expires
+     *
+     * @return int
      */
     public function createRemember(int $userId, string $selector, string $tokenHash, int $expires): int
     {
@@ -74,6 +92,7 @@ final class TokenRepository
     /**
      * Finds a non-expired bearer token by its hash.
      *
+     * @param string $tokenHash
      * @return array<string, mixed>|null
      */
     public function findApi(string $tokenHash): ?array
@@ -89,6 +108,7 @@ final class TokenRepository
     /**
      * Finds a non-expired remember-me token by selector.
      *
+     * @param string $selector
      * @return array<string, mixed>|null
      */
     public function findRemember(string $selector): ?array
@@ -103,6 +123,10 @@ final class TokenRepository
 
     /**
      * Updates the token's last_used timestamp.
+     *
+     * @param int $id
+     *
+     * @return void
      */
     public function touch(int $id): void
     {
@@ -114,6 +138,10 @@ final class TokenRepository
 
     /**
      * Deletes a token by ID. Returns true when a row was removed.
+     *
+     * @param int $id
+     *
+     * @return bool
      */
     public function delete(int $id): bool
     {
@@ -125,8 +153,12 @@ final class TokenRepository
 
     /**
      * Deletes tokens by hash, optionally filtered by kind.
-     *
      * Returns the number of deleted rows.
+     *
+     * @param string $tokenHash
+     * @param string|null $kind
+     *
+     * @return int
      */
     public function deleteByHash(string $tokenHash, ?string $kind = null): int
     {
@@ -147,8 +179,11 @@ final class TokenRepository
 
     /**
      * Deletes remember-me tokens by selector.
-     *
      * Returns the number of deleted rows.
+     *
+     * @param string $selector
+     *
+     * @return int
      */
     public function deleteBySelector(string $selector): int
     {
@@ -162,8 +197,12 @@ final class TokenRepository
 
     /**
      * Deletes all tokens of a user, optionally filtered by kind.
-     *
      * Returns the number of deleted rows.
+     *
+     * @param int $userId
+     * @param string|null $kind
+     *
+     * @return int
      */
     public function deleteByUser(int $userId, ?string $kind = null): int
     {
@@ -186,6 +225,8 @@ final class TokenRepository
 
     /**
      * Deletes expired tokens and returns the number of deleted rows.
+     *
+     * @return int
      */
     public function deleteExpired(): int
     {
@@ -200,7 +241,9 @@ final class TokenRepository
     /**
      * Executes a query and returns the first row as an associative array.
      *
-     * @param list<int|string> $params
+     * @param string $sql
+     * @param array $params
+     *
      * @return array<string, mixed>|null
      */
     private function fetchOne(string $sql, array $params): ?array

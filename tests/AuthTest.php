@@ -195,7 +195,7 @@ final class AuthTest extends TestCase
     public function testLoginRejectsDisabledUser(): void
     {
         $id = $this->createUser();
-        $this->pdo->exec('UPDATE users SET status = ' . Status::BANNED . ' WHERE id = ' . $id);
+        $this->pdo->exec('UPDATE users SET status = ' . Status::BANNED->value . ' WHERE id = ' . $id);
 
         $this->expectException(AccountDisabledException::class);
 
@@ -373,6 +373,47 @@ final class AuthTest extends TestCase
         self::assertSame($id, $user->id);
         self::assertContains('ADMIN', $user->roleNames());
         self::assertContains('EDITOR', $user->roleNames());
+    }
+
+    public function testRoleManagement(): void
+    {
+        $id = $this->createUser(rolesMask: Role::AUTHOR);
+        $auth = $this->auth();
+
+        self::assertSame(Role::AUTHOR, $auth->roles($id));
+
+        self::assertSame(Role::AUTHOR | Role::EDITOR, $auth->addRole($id, Role::EDITOR));
+        self::assertSame(Role::AUTHOR | Role::EDITOR, $auth->roles($id));
+
+        self::assertSame(Role::EDITOR, $auth->removeRole($id, Role::AUTHOR));
+        self::assertSame(Role::EDITOR, $auth->roles($id));
+
+        self::assertSame(Role::ADMIN, $auth->setRole($id, Role::ADMIN));
+        self::assertSame(Role::ADMIN, $auth->roles($id));
+
+        self::assertSame(Role::ADMIN | Role::EDITOR, $auth->setRoles($id, Role::ADMIN | Role::EDITOR));
+        self::assertSame(Role::ADMIN | Role::EDITOR, $auth->roles($id));
+        self::assertSame(['ADMIN', 'EDITOR'], $auth->roleNamesForUser($id));
+    }
+
+    public function testRoleManagementForUnknownUserThrows(): void
+    {
+        $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
+
+        $this->auth()->addRole(999, Role::ADMIN);
+    }
+
+    public function testRoleChangeInvalidatesCachedUser(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        self::assertFalse($auth->hasRole(Role::ADMIN));
+
+        $auth->addRole($id, Role::ADMIN);
+
+        self::assertTrue($auth->hasRole(Role::ADMIN));
     }
 
     public function testIssueTokenForUnknownUserThrows(): void

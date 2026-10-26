@@ -4,19 +4,12 @@ declare(strict_types=1);
 
 namespace Arris\Auth;
 
-final class Status
+enum Status: int
 {
-    public const NORMAL = 0;
-    public const ARCHIVED = 1;
-    public const BANNED = 2;
-    public const LOCKED = 3;
-    public const PENDING_REVIEW = 4;
-    public const SUSPENDED = 5;
-
-    /**
-     * The class is a constant holder; instantiation is not allowed.
-     */
-    private function __construct()
-    {
-    }
+    case NORMAL = 0;
+    case ARCHIVED = 1;
+    case BANNED = 2;
+    case LOCKED = 3;
+    case PENDING_REVIEW = 4;
+    case SUSPENDED = 5;
 }

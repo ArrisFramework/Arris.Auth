@@ -13,7 +13,7 @@ final readonly class User
         public int $id,
         public string $email,
         public ?string $username,
-        public int $status,
+        public Status $status,
         public int $verified,
         public int $resettable,
         public int $rolesMask,
@@ -35,7 +35,7 @@ final readonly class User
             id: (int) $row['id'],
             email: (string) $row['email'],
             username: isset($row['username']) ? (string) $row['username'] : null,
-            status: (int) ($row['status'] ?? Status::NORMAL),
+            status: Status::from((int) ($row['status'] ?? Status::NORMAL->value)),
             verified: (int) ($row['verified'] ?? 0),
             resettable: (int) ($row['resettable'] ?? 1),
             rolesMask: (int) ($row['roles_mask'] ?? 0),
@@ -141,15 +141,18 @@ final readonly class User
     /**
      * Returns the names of all roles present in the role mask.
      *
+     * Pass a custom name => bit map to use application-specific role names.
+     *
+     * @param array<string, int>|null $map
      * @return list<string>
      */
-    public function roleNames(): array
+    public function roleNames(?array $map = null): array
     {
-        $map = Role::getMap();
+        $map ??= Role::map();
         $names = [];
 
-        foreach ($map as $value => $name) {
-            if ($this->hasRole((int) $value)) {
+        foreach ($map as $name => $bit) {
+            if ($this->hasRole($bit)) {
                 $names[] = $name;
             }
         }
@@ -168,7 +171,7 @@ final readonly class User
             'id' => $this->id,
             'email' => $this->email,
             'username' => $this->username,
-            'status' => $this->status,
+            'status' => $this->status->value,
             'verified' => $this->verified,
             'resettable' => $this->resettable,
             'roles_mask' => $this->rolesMask,
