@@ -51,19 +51,19 @@ CREATE TABLE `users_tokens` (
 ### Где хранятся сессии
 
 Строкового выбора `storage=db|redis` нет. Хранилище — это объект, реализующий
-`SessionHandlerInterface`, и он передаётся в `Auth` опцией `session_handler`:
+`SessionHandlerInterface`, и он передаётся в `AuthConfig` через `setSessionHandler()`:
 
-- `session_handler => null` — `Auth` не вызывает `session_set_save_handler()`;
+- `setSessionHandler(null)` — `Auth` не вызывает `session_set_save_handler()`;
   PHP использует глобальный `session.save_handler` (обычно `files`);
-- `session_handler => new PdoSessionHandler($pdo, 'sessions')` — handler сам пишет
+- `setSessionHandler(new PdoSessionHandler($pdo, 'sessions'))` — handler сам пишет
   сериализованные данные в таблицу `sessions` через переданный PDO;
-- `session_handler => new RedisSessionHandler($redis)` — handler пишет в Redis
+- `setSessionHandler(new RedisSessionHandler($redis))` — handler пишет в Redis
   через переданное подключение;
-- `session_handler => $myHandler` — любой свой `SessionHandlerInterface`.
+- `setSessionHandler($myHandler)` — любой свой `SessionHandlerInterface`.
 
-Это объект, не строка: `['session_handler' => 'redis']` не сработает.
+Это объект, не строка: `setSessionHandler('redis')` не сработает.
 
-Достаточно ли просто передать объект в опции? Да, но только пока сессия ещё не
+Достаточно ли просто передать объект в конфиг? Да, но только пока сессия ещё не
 стартовала: `Auth` лениво вызывает `session_set_save_handler($handler, true)`
 непосредственно перед `session_start()`. Если сессия уже активна, опция игнорируется —
 handler нужно было установить раньше вручную.
@@ -81,11 +81,17 @@ handler нужно было установить раньше вручную.
 
 ```php
 use Arris\Auth\Auth;
+use Arris\Auth\AuthConfig;
 
-$auth = new Auth($pdo);                       // auto: bearer -> session
-$auth = new Auth($pdo, ['mode' => 'session']);
-$auth = new Auth($pdo, ['mode' => 'token']);
+$auth = new Auth($pdo); // AuthConfig defaults: auto: bearer -> session
+
+$auth = new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_SESSION));
+$auth = new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_TOKEN));
 ```
+
+Если второй аргумент конструктора не передан или равен `null`, `Auth` сам создаёт
+`AuthConfig` с дефолтными значениями. Переданный конфиг клонируется, поэтому его
+последующие изменения не влияют на уже созданный `Auth`.
 
 - `auto` — если есть `Authorization: Bearer ...`, проверяется токен; иначе cookie-сессия.
   Это удобный режим по умолчанию для смешанного приложения.
@@ -117,11 +123,13 @@ $auth = new Auth($pdo, ['mode' => 'token']);
 `SessionHandlerInterface`. Handler передаётся в `Auth` и устанавливается до старта сессии:
 
 ```php
+use Arris\Auth\AuthConfig;
 use Arris\Auth\Session\PdoSessionHandler;
 
-$auth = new Auth($pdo, [
-    'session_handler' => new PdoSessionHandler($pdo, 'sessions'),
-]);
+$config = (new AuthConfig())
+    ->setSessionHandler(new PdoSessionHandler($pdo, 'sessions'));
+
+$auth = new Auth($pdo, $config);
 ```
 
 Для `PdoSessionHandler` нужна таблица `sessions(id, data, last_activity)` — она добавлена
@@ -131,15 +139,17 @@ $auth = new Auth($pdo, [
 Redis:
 
 ```php
+use Arris\Auth\AuthConfig;
 use Arris\Auth\Session\RedisSessionHandler;
 use Redis;
 
 $redis = new Redis();
 $redis->connect('127.0.0.1', 6379);
 
-$auth = new Auth($pdo, [
-    'session_handler' => new RedisSessionHandler($redis),
-]);
+$config = (new AuthConfig())
+    ->setSessionHandler(new RedisSessionHandler($redis));
+
+$auth = new Auth($pdo, $config);
 ```
 
 `RedisSessionHandler` требует `ext-redis` и уже подключённый клиент. Вместо этих классов
@@ -150,17 +160,19 @@ $auth = new Auth($pdo, [
 
 ```php
 use Arris\Auth\Auth;
+use Arris\Auth\AuthConfig;
 use Arris\Auth\Exception\AuthException;
 
-$auth = new Auth($pdo, [
-    'session_name' => 'app_session',
-    'session_cookie' => [
+$config = (new AuthConfig())
+    ->setSessionName('app_session')
+    ->setSessionCookie([
         'path' => '/',
         'secure' => true,
         'httponly' => true,
         'samesite' => 'Lax',
-    ],
-]);
+    ]);
+
+$auth = new Auth($pdo, $config);
 
 try {
     $id = $auth->register('user@example.com', 'correct horse battery staple', 'user');
@@ -197,13 +209,11 @@ fetch('https://api.example.com/me', { credentials: 'include' });
 Для cross-site cookie нужно `SameSite=None` и `Secure`:
 
 ```php
-new Auth($pdo, [
-    'session_cookie' => [
-        'secure' => true,
-        'httponly' => true,
-        'samesite' => 'None',
-    ],
-]);
+$auth = new Auth($pdo, (new AuthConfig())->setSessionCookie([
+    'secure' => true,
+    'httponly' => true,
+    'samesite' => 'None',
+]));
 ```
 
 ### Bearer-токены
@@ -214,7 +224,7 @@ $token = $auth->issueToken($userId, ttl: 60 * 60 * 24 * 30, name: 'mobile');
 
 // на API-запросе:
 // Authorization: Bearer <token>
-$user = (new Auth($pdo, ['mode' => 'token']))->user();
+$user = (new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_TOKEN)))->user();
 
 $auth->revokeToken($token);
 $auth->revokeAllTokens($userId);
@@ -309,24 +319,31 @@ final class AppRole extends \Arris\Auth\Role
 и `$user->roleNames(AppRole::map())` работают без switch и reflection. Если несколько
 имён ссылаются на один бит, `getMap()` схлопнет их, а `names()` вернёт все имена.
 
-## Опции конструктора
+## Опции AuthConfig
 
-| Опция | По умолчанию | Смысл |
+| Метод | По умолчанию | Смысл |
 |---|---|---|
-| `mode` | `auto` | `auto`, `session`, `token` |
-| `table_prefix` | `''` | префикс таблиц |
-| `db_schema` | `null` | schema/database qualifier |
-| `session_name` | `arris_auth` | имя PHP-сессии |
-| `session_cookie` | `path=/`, `secure=auto`, `httponly=true`, `samesite=Lax` | параметры cookie сессии |
-| `session_handler` | `null` | `SessionHandlerInterface`; `null` — настройки PHP |
-| `remember_cookie_name` | `arris_remember` | имя remember-cookie |
-| `remember_ttl` | 30 дней | срок жизни remember-токена |
-| `token_ttl` | 30 дней | срок жизни bearer-токена; `0` — бессрочно |
-| `require_verified` | `true` | требовать `verified=1` при входе |
-| `reject_non_normal_status` | `true` | не пускать пользователей со статусом не `NORMAL` |
-| `min_password_length` | `8` | минимальная длина пароля при регистрации/смене |
-| `update_last_login` | `true` | обновлять `users.last_login` |
-| `touch_token_interval` | `60` | как часто обновлять `last_used` токена |
+| `setMode()` | `Auth::MODE_AUTO` | `auto`, `session`, `token` |
+| `setTablePrefix()` | `''` | префикс таблиц |
+| `setDbSchema()` | `null` | schema/database qualifier |
+| `setSessionName()` | `arris_auth` | имя PHP-сессии |
+| `setSessionCookie()` | `path=/`, `secure=auto`, `httponly=true`, `samesite=Lax` | параметры cookie сессии |
+| `setSessionHandler()` | `null` | `SessionHandlerInterface`; `null` — настройки PHP |
+| `setRememberCookieName()` | `arris_remember` | имя remember-cookie |
+| `setRememberTtl()` | 30 дней | срок жизни remember-токена |
+| `setTokenTtl()` | 30 дней | срок жизни bearer-токена; `0` — бессрочно |
+| `setRequireVerified()` | `true` | требовать `verified=1` при входе |
+| `setRejectNonNormalStatus()` | `true` | не пускать пользователей со статусом не `NORMAL` |
+| `setMinPasswordLength()` | `8` | минимальная длина пароля при регистрации/смене |
+| `setUpdateLastLogin()` | `true` | обновлять `users.last_login` |
+| `setTouchTokenInterval()` | `60` | как часто обновлять `last_used` токена; `0` — отключить |
+
+`setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
+snake_case-имени из старого API. Внутри он вызывает те же типизированные сеттеры;
+неизвестный ключ или неверное значение дают `ConfigurationException`, а неверный
+PHP-тип значения — `TypeError`.
+
+Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()` и т.д.
 
 ## Что пока не реализовано
 
@@ -341,4 +358,4 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 35 тестов, 94 assertions.
+Текущее состояние: 44 теста, 132 assertions.

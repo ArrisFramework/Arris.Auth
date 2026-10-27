@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use Arris\Auth\Auth;
+use Arris\Auth\AuthConfig;
 use Arris\Auth\Exception\AccountDisabledException;
 use Arris\Auth\Exception\AmbiguousUsernameException;
 use Arris\Auth\Exception\ConfigurationException;
@@ -87,20 +88,16 @@ final class AuthTest extends TestCase
         parent::tearDown();
     }
 
-    /**
-     * @param array<string, mixed>|string $options
-     */
-    private function auth(array|string $options = []): Auth
+    private function auth(AuthConfig|string|null $config = null): Auth
     {
-        if (\is_string($options)) {
-            $options = ['mode' => $options];
+        if (\is_string($config)) {
+            $config = (new AuthConfig())->setMode($config);
         }
 
-        $options = \array_replace_recursive([
-            'session_cookie' => ['secure' => false],
-        ], $options);
+        $config ??= new AuthConfig();
+        $config->setSessionCookie(\array_replace(['secure' => false], $config->getSessionCookie()));
 
-        return new Auth($this->pdo, $options);
+        return new Auth($this->pdo, $config);
     }
 
     private function createUser(

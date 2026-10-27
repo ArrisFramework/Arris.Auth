@@ -18,7 +18,6 @@ use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Repository\UserRepository;
 use PDO;
 use PDOException;
-use SessionHandlerInterface;
 
 final class Auth
 {
@@ -35,8 +34,7 @@ final class Auth
     private UserRepository $users;
     private TokenRepository $tokens;
 
-    /** @var array<string, mixed> */
-    private array $options;
+    private AuthConfig $config;
 
     /** @var array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null, lifetime: int} */
     private array $sessionCookie;
@@ -48,47 +46,13 @@ final class Auth
     /**
      * Creates an authentication service for the given PDO connection.
      *
-     * @param array{
-     *     mode?: string,
-     *     table_prefix?: string,
-     *     db_schema?: string|null,
-     *     session_name?: string,
-     *     session_cookie?: array<string, mixed>,
-     *     session_handler?: SessionHandlerInterface|null,
-     *     remember_cookie_name?: string,
-     *     remember_ttl?: int,
-     *     token_ttl?: int,
-     *     require_verified?: bool,
-     *     reject_non_normal_status?: bool,
-     *     min_password_length?: int,
-     *     update_last_login?: bool,
-     *     touch_token_interval?: int
-     * } $options
+     * When no configuration is passed, AuthConfig defaults are used.
      */
     public function __construct(
         private readonly PDO $pdo,
-        array $options = [],
+        ?AuthConfig $config = null,
     ) {
-        $this->options = \array_replace([
-            'mode' => self::MODE_AUTO,
-            'table_prefix' => '',
-            'db_schema' => null,
-            'session_name' => 'arris_auth',
-            'session_cookie' => [],
-            'session_handler' => null,
-            'remember_cookie_name' => 'arris_remember',
-            'remember_ttl' => 60 * 60 * 24 * 30,
-            'token_ttl' => 60 * 60 * 24 * 30,
-            'require_verified' => true,
-            'reject_non_normal_status' => true,
-            'min_password_length' => 8,
-            'update_last_login' => true,
-            'touch_token_interval' => 60,
-        ], $options);
-
-        if (!\in_array($this->options['mode'], [self::MODE_AUTO, self::MODE_SESSION, self::MODE_TOKEN], true)) {
-            throw new ConfigurationException('Auth mode must be auto, session or token');
-        }
+        $this->config = $config !== null ? clone $config : new AuthConfig();
 
         $this->sessionCookie = \array_replace([
             'path' => '/',
@@ -97,7 +61,7 @@ final class Auth
             'httponly' => true,
             'samesite' => 'Lax',
             'lifetime' => 0,
-        ], $this->options['session_cookie']);
+        ], $this->config->getSessionCookie());
 
         if ($this->sessionCookie['samesite'] === '') {
             $this->sessionCookie['samesite'] = null;
@@ -105,14 +69,14 @@ final class Auth
 
         $this->users = new UserRepository(
             $this->pdo,
-            $this->options['db_schema'],
-            $this->options['table_prefix']
+            $this->config->getDbSchema(),
+            $this->config->getTablePrefix()
         );
 
         $this->tokens = new TokenRepository(
             $this->pdo,
-            $this->options['db_schema'],
-            $this->options['table_prefix']
+            $this->config->getDbSchema(),
+            $this->config->getTablePrefix()
         );
     }
 
@@ -133,7 +97,7 @@ final class Auth
      */
     public function mode(): string
     {
-        return $this->options['mode'];
+        return $this->config->getMode();
     }
 
     /**
@@ -266,7 +230,7 @@ final class Auth
             return $this->cachedUser;
         }
 
-        if ($this->options['mode'] !== self::MODE_SESSION) {
+        if ($this->config->getMode() !== self::MODE_SESSION) {
             $bearer = $this->bearerToken();
 
             if ($bearer !== null) {
@@ -277,7 +241,7 @@ final class Auth
             }
         }
 
-        if ($this->options['mode'] === self::MODE_TOKEN) {
+        if ($this->config->getMode() === self::MODE_TOKEN) {
             $this->resolved = true;
 
             return null;
@@ -500,7 +464,7 @@ final class Auth
         }
 
         $token = self::randomToken(32);
-        $ttl ??= (int) $this->options['token_ttl'];
+        $ttl ??= $this->config->getTokenTtl();
         $expires = $ttl > 0 ? \time() + $ttl : 0;
 
         $this->tokens->createApi(
@@ -646,7 +610,7 @@ final class Auth
      */
     private function loginRow(array $row, string $password, bool $remember): User
     {
-        if ($this->options['mode'] === self::MODE_TOKEN) {
+        if ($this->config->getMode() === self::MODE_TOKEN) {
             throw new ConfigurationException('Session login is not available in token mode; use issueToken()');
         }
 
@@ -663,7 +627,7 @@ final class Auth
             }
         }
 
-        if ($this->options['require_verified'] && (int) $row['verified'] !== 1) {
+        if ($this->config->getRequireVerified() && (int) $row['verified'] !== 1) {
             throw new EmailNotVerifiedException('The email address has not been verified yet');
         }
 
@@ -679,7 +643,7 @@ final class Auth
             $this->issueRememberCookie((int) $row['id']);
         }
 
-        if ($this->options['update_last_login']) {
+        if ($this->config->getUpdateLastLogin()) {
             $this->users->updateLastLogin((int) $row['id']);
         }
 
@@ -730,7 +694,7 @@ final class Auth
      */
     private function processRememberCookie(): bool
     {
-        $name = (string) $this->options['remember_cookie_name'];
+        $name = $this->config->getRememberCookieName();
         $value = $_COOKIE[$name] ?? null;
 
         if (!\is_string($value) || $value === '') {
@@ -761,7 +725,7 @@ final class Auth
             return false;
         }
 
-        if ($this->options['require_verified'] && (int) $userRow['verified'] !== 1) {
+        if ($this->config->getRequireVerified() && (int) $userRow['verified'] !== 1) {
             $this->deleteRememberCookie();
 
             return false;
@@ -772,7 +736,7 @@ final class Auth
         $this->setSessionUser($userRow, true);
         $this->tokens->touch((int) $tokenRow['id']);
 
-        if ($this->options['update_last_login']) {
+        if ($this->config->getUpdateLastLogin()) {
             $this->users->updateLastLogin((int) $userRow['id']);
         }
 
@@ -818,7 +782,7 @@ final class Auth
 
         $selector = \bin2hex(\random_bytes(12));
         $token = self::randomToken(32);
-        $expires = \time() + (int) $this->options['remember_ttl'];
+        $expires = \time() + $this->config->getRememberTtl();
 
         $this->tokens->createRemember(
             $userId,
@@ -828,7 +792,7 @@ final class Auth
         );
 
         Cookie::set(
-            (string) $this->options['remember_cookie_name'],
+            $this->config->getRememberCookieName(),
             $selector . self::REMEMBER_SEPARATOR . $token,
             $expires,
             $this->rememberCookieOptions()
@@ -880,7 +844,7 @@ final class Auth
      */
     private function deleteRememberCookie(): void
     {
-        $name = (string) $this->options['remember_cookie_name'];
+        $name = $this->config->getRememberCookieName();
 
         if (!isset($_COOKIE[$name]) || !\is_string($_COOKIE[$name])) {
             return;
@@ -906,9 +870,9 @@ final class Auth
         }
 
         Session::start(
-            (string) $this->options['session_name'],
+            $this->config->getSessionName(),
             $this->sessionCookie,
-            $this->options['session_handler']
+            $this->config->getSessionHandler()
         );
     }
 
@@ -917,7 +881,7 @@ final class Auth
      */
     private function hasSessionCookie(): bool
     {
-        return isset($_COOKIE[(string) $this->options['session_name']]);
+        return isset($_COOKIE[$this->config->getSessionName()]);
     }
 
     /**
@@ -958,7 +922,7 @@ final class Auth
      */
     private function touchToken(array $tokenRow): void
     {
-        $interval = (int) $this->options['touch_token_interval'];
+        $interval = $this->config->getTouchTokenInterval();
 
         if ($interval <= 0) {
             return;
@@ -978,7 +942,7 @@ final class Auth
      */
     private function isDisabled(array $row): bool
     {
-        return $this->options['reject_non_normal_status']
+        return $this->config->getRejectNonNormalStatus()
             && (int) ($row['status'] ?? Status::NORMAL->value) !== Status::NORMAL->value;
     }
 
@@ -1005,9 +969,9 @@ final class Auth
      */
     private function validateNewPassword(string $password): void
     {
-        if (\strlen($password) < (int) $this->options['min_password_length']) {
+        if (\strlen($password) < $this->config->getMinPasswordLength()) {
             throw new InvalidPasswordException(
-                'Password must be at least ' . (int) $this->options['min_password_length'] . ' characters long'
+                'Password must be at least ' . $this->config->getMinPasswordLength() . ' characters long'
             );
         }
     }
