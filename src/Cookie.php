@@ -11,6 +11,8 @@ final class Cookie
 {
     /**
      * The class is static; instantiation is not allowed.
+     *
+     * Класс статический; создание экземпляра запрещено.
      */
     private function __construct()
     {
@@ -18,6 +20,8 @@ final class Cookie
 
     /**
      * Sends a cookie with the given value, expiry time and options.
+     *
+     * Отправляет cookie с указанными значением, временем истечения и параметрами.
      *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $options
      */
@@ -40,6 +44,8 @@ final class Cookie
     /**
      * Expires a cookie on the client and removes it from $_COOKIE.
      *
+     * Истекает cookie на клиенте и удаляет её из $_COOKIE.
+     *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $options
      */
     public static function delete(string $name, array $options = []): void
@@ -51,6 +57,8 @@ final class Cookie
 
     /**
      * Validates and normalizes cookie options, including SameSite and __Host- rules.
+     *
+     * Проверяет и нормализует параметры cookie, включая правила SameSite и __Host-.
      *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $options
      * @return array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null}
@@ -88,6 +96,8 @@ final class Cookie
 
     /**
      * Throws when headers have already been sent and a cookie cannot be written.
+     *
+     * Выбрасывает исключение, если заголовки уже отправлены и cookie записать нельзя.
      *
      * @throws HeadersAlreadySentException
      */

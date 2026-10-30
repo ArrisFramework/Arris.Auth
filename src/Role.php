@@ -9,6 +9,12 @@ namespace Arris\Auth;
  *
  * Applications may extend this class and override map() to define their own
  * role names or aliases while reusing the base bit values.
+ *
+ *
+ * Базовые константы битовой маски ролей.
+ *
+ * Приложения могут расширять этот класс и переопределять map(), чтобы задавать свои имена ролей или алиасы,
+ * переиспользуя базовые значения битов.
  */
 class Role
 {
@@ -37,6 +43,8 @@ class Role
 
     /**
      * The class is a constant holder; instantiation is not allowed.
+     *
+     * Класс является хранилищем констант; создание экземпляра запрещено.
      */
     private function __construct()
     {
@@ -44,9 +52,11 @@ class Role
 
     /**
      * Returns role names mapped to their bit values.
-     *
      * Override this method in an application-specific subclass to define
      * custom names or aliases for the base bits.
+     *
+     * Возвращает имена ролей, сопоставленные с их значениями битов.
+     * Переопределите этот метод в подклассе приложения, чтобы задать свои имена или алиасы для базовых битов.
      *
      * @return array<string, int>
      */
@@ -80,6 +90,8 @@ class Role
 
     /**
      * Returns the bit value for a role name, or null when the name is unknown.
+     *
+     * Возвращает значение бита для имени роли или null, если имя неизвестно.
      */
     public static function id(string $name): ?int
     {
@@ -88,6 +100,8 @@ class Role
 
     /**
      * Returns the names of all roles present in the given bitmask.
+     *
+     * Возвращает имена всех ролей, присутствующих в указанной битовой маске.
      *
      * @return list<string>
      */
@@ -106,8 +120,10 @@ class Role
 
     /**
      * Returns role bit values mapped to role names.
-     *
      * Aliases with the same bit value collapse to a single name.
+     *
+     * Возвращает значения битов ролей, сопоставленные с именами ролей.
+     * Алиасы с одинаковым значением бита схлопываются в одно имя.
      *
      * @return array<int, string>
      */
@@ -119,6 +135,8 @@ class Role
     /**
      * Returns all role names.
      *
+     * Возвращает все имена ролей.
+     *
      * @return list<string>
      */
     public static function getNames(): array
@@ -128,6 +146,8 @@ class Role
 
     /**
      * Returns all role bit values.
+     *
+     * Возвращает все значения битов ролей.
      *
      * @return list<int>
      */

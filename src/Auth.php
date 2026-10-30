@@ -46,8 +46,13 @@ final class Auth
 
     /**
      * Creates an authentication service for the given PDO connection.
-     *
      * When no configuration is passed, AuthConfig defaults are used.
+     *
+     * Создаёт сервис аутентификации для указанного соединения PDO.
+     * Если конфигурация не передана, используются значения по умолчанию AuthConfig.
+     *
+     * @param PDO $pdo
+     * @param AuthConfig|null $config
      */
     public function __construct(
         private readonly PDO $pdo,
@@ -92,6 +97,14 @@ final class Auth
      * cookie or bearer token is processed immediately, so isLoggedIn() and
      * getUserId() work right after construction. Anonymous visitors do not get
      * a new session here; the session is created on login().
+     *
+     * Определяет текущее состояние аутентификации сразу.
+     *
+     * Повторяет workflow старой библиотеки: присутствующие session cookie, remember-me cookie или bearer-токен
+     * обрабатываются сразу, поэтому isLoggedIn() и getUserId() работают сразу после создания объекта.
+     * Анонимным посетителям новая сессия здесь не создаётся; сессия создаётся при login().
+     *
+     * @return void
      */
     public function initialize(): void
     {
@@ -125,6 +138,8 @@ final class Auth
     /**
      * Returns the underlying PDO connection.
      *
+     * Возвращает используемое соединение PDO.
+     *
      * @return PDO
      */
     public function pdo(): PDO
@@ -135,6 +150,8 @@ final class Auth
     /**
      * Returns the active authentication mode: auto, session or token.
      *
+     * Возвращает активный режим аутентификации: auto, session или token.
+     *
      * @return string
      */
     public function mode(): string
@@ -144,9 +161,12 @@ final class Auth
 
     /**
      * Registers a new user account.
-     *
      * Validates the email address and password, hashes the password with
      * password_hash() and returns the generated user ID.
+     *
+     * Регистрирует новую учётную запись пользователя.
+     * Проверяет email-адрес и пароль, хэширует пароль через password_hash()
+     * и возвращает сгенерированный ID пользователя.
      *
      * @throws InvalidEmailException
      * @throws InvalidPasswordException
@@ -198,8 +218,9 @@ final class Auth
     /**
      * Marks the user's email address as verified.
      *
-     * @param int $userId
+     * Помечает email-адрес пользователя как подтверждённый.
      *
+     * @param int $userId
      * @return void
      */
     public function verifyUser(int $userId): void
@@ -209,9 +230,15 @@ final class Auth
 
     /**
      * Authenticates a user by email and password and starts a cookie session.
-     *
      * When $remember is true, a long-lived remember-me cookie is created as well.
      *
+     * Аутентифицирует пользователя по email и паролю и запускает cookie-сессию.
+     * Если $remember равно true, дополнительно создаётся долгоживущая remember-me cookie.
+     *
+     * @param string $email
+     * @param string $password
+     * @param bool $remember
+     * @return User
      * @throws InvalidEmailException
      * @throws InvalidCredentialsException
      * @throws EmailNotVerifiedException
@@ -231,6 +258,8 @@ final class Auth
 
     /**
      * Authenticates a user by username and password and starts a cookie session.
+     *
+     * Аутентифицирует пользователя по имени пользователя и паролю и запускает cookie-сессию.
      *
      * @param string $username
      * @param string $password
@@ -261,10 +290,15 @@ final class Auth
 
     /**
      * Returns the currently authenticated user, or null.
-     *
      * Depending on the mode, the user is resolved from the Authorization:
      * Bearer header first, then from the PHP session and the remember-me cookie.
      * The result is cached for the lifetime of the current request.
+     *
+     * Возвращает текущего аутентифицированного пользователя или null.
+     * В зависимости от режима пользователь сначала определяется по заголовку Authorization: Bearer,
+     * затем по PHP-сессии и remember-me cookie. Результат кэшируется на время текущего запроса.
+     *
+     * @return User|null
      */
     public function user(): ?User
     {
@@ -344,6 +378,10 @@ final class Auth
 
     /**
      * Returns whether a user is currently authenticated.
+     *
+     * Возвращает, аутентифицирован ли сейчас пользователь.
+     *
+     * @return bool
      */
     public function check(): bool
     {
@@ -352,8 +390,12 @@ final class Auth
 
     /**
      * Returns whether a user is currently authenticated.
-     *
      * Compatibility alias for check(), matching the old Delight Auth API.
+     *
+     * Возвращает, аутентифицирован ли сейчас пользователь.
+     * Совместимый алиас для check(), повторяющий старый API Delight Auth.
+     *
+     * @return bool
      */
     public function isLoggedIn(): bool
     {
@@ -363,6 +405,9 @@ final class Auth
     /**
      * Returns the current user, or throws when nobody is authenticated.
      *
+     * Возвращает текущего пользователя или выбрасывает исключение, если никто не аутентифицирован.
+     *
+     * @return User
      * @throws \Arris\Auth\Exception\NotLoggedInException
      */
     public function userOrFail(): User
@@ -378,6 +423,10 @@ final class Auth
 
     /**
      * Returns the current user ID, or null when nobody is authenticated.
+     *
+     * Возвращает ID текущего пользователя или null, если никто не аутентифицирован.
+     *
+     * @return int|null
      */
     public function id(): ?int
     {
@@ -386,8 +435,12 @@ final class Auth
 
     /**
      * Returns the current user ID, or null when nobody is authenticated.
-     *
      * Compatibility alias for id(), matching the old Delight Auth API.
+     *
+     * Возвращает ID текущего пользователя или null, если никто не аутентифицирован.
+     * Совместимый алиас для id(), повторяющий старый API Delight Auth.
+     *
+     * @return int|null
      */
     public function getUserId(): ?int
     {
@@ -396,6 +449,10 @@ final class Auth
 
     /**
      * Returns the current user's email address, or null.
+     *
+     * Возвращает email-адрес текущего пользователя или null.
+     *
+     * @return string|null
      */
     public function email(): ?string
     {
@@ -404,6 +461,10 @@ final class Auth
 
     /**
      * Returns the current user's username, or null.
+     *
+     * Возвращает имя текущего пользователя или null.
+     *
+     * @return string|null
      */
     public function username(): ?string
     {
@@ -412,8 +473,12 @@ final class Auth
 
     /**
      * Returns the current user, or null.
-     *
      * Compatibility alias for user(), matching the old Delight Auth API.
+     *
+     * Возвращает текущего пользователя или null.
+     * Совместимый алиас для user(), повторяющий старый API Delight Auth.     *
+     *
+     * @return User|null
      */
     public function getUser(): ?User
     {
@@ -422,8 +487,12 @@ final class Auth
 
     /**
      * Returns the current user's email address, or null.
-     *
      * Compatibility alias for email().
+     *
+     * Возвращает email-адрес текущего пользователя или null.
+     * Совместимый алиас для email().
+     *
+     * @return string|null
      */
     public function getEmail(): ?string
     {
@@ -432,8 +501,12 @@ final class Auth
 
     /**
      * Returns the current user's username, or null.
-     *
      * Compatibility alias for username().
+     *
+     * Возвращает имя текущего пользователя или null.
+     * Совместимый алиас для username().
+     *
+     * @return string|null
      */
     public function getUsername(): ?string
     {
@@ -442,6 +515,8 @@ final class Auth
 
     /**
      * Returns the current user's role names keyed by role bit.
+     *
+     * Возвращает имена ролей текущего пользователя с ключами по битам ролей.
      *
      * @return array<int, string>
      */
@@ -462,6 +537,10 @@ final class Auth
 
     /**
      * Returns whether the current session was restored from a remember-me cookie.
+     *
+     * Возвращает, была ли текущая сессия восстановлена из remember-me cookie.
+     *
+     * @return bool
      */
     public function isRemembered(): bool
     {
@@ -471,6 +550,12 @@ final class Auth
 
     /**
      * Checks whether the current user has the given role bit.
+     *
+     * Проверяет, есть ли у текущего пользователя указанный бит роли.
+     *
+     * @param int $role
+     *
+     * @return bool
      */
     public function hasRole(int $role): bool
     {
@@ -479,6 +564,12 @@ final class Auth
 
     /**
      * Checks whether the current user has at least one of the given role bits.
+     *
+     * Проверяет, есть ли у текущего пользователя хотя бы один из указанных битов ролей.
+     *
+     * @param int ...$roles
+     *
+     * @return bool
      */
     public function hasAnyRole(int ...$roles): bool
     {
@@ -487,6 +578,12 @@ final class Auth
 
     /**
      * Checks whether the current user has all of the given role bits.
+     *
+     * Проверяет, есть ли у текущего пользователя все указанные биты ролей.
+     *
+     * @param int ...$roles
+     *
+     * @return bool
      */
     public function hasAllRoles(int ...$roles): bool
     {
@@ -495,9 +592,15 @@ final class Auth
 
     /**
      * Replaces all roles of a user with a single role bit.
-     *
      * Returns the new role bitmask.
      *
+     * Заменяет все роли пользователя одним битом роли.
+     * Возвращает новую битовую маску ролей.
+     *
+     * @param int $userId
+     * @param int $role
+     *
+     * @return int
      * @throws UnknownUserException
      */
     public function setRole(int $userId, int $role): int
@@ -507,9 +610,15 @@ final class Auth
 
     /**
      * Replaces the user's role bitmask.
-     *
      * Returns the new role bitmask.
      *
+     * Заменяет битовую маску ролей пользователя.
+     * Возвращает новую битовую маску ролей.
+     *
+     * @param int $userId
+     * @param int $rolesMask
+     *
+     * @return int
      * @throws UnknownUserException
      */
     public function setRoles(int $userId, int $rolesMask): int
@@ -523,9 +632,15 @@ final class Auth
 
     /**
      * Adds role bits to the user's role mask.
-     *
      * Returns the new role bitmask.
      *
+     * Добавляет биты ролей в маску ролей пользователя.
+     * Возвращает новую битовую маску ролей.
+     *
+     * @param int $userId
+     * @param int $role
+     *
+     * @return int
      * @throws UnknownUserException
      */
     public function addRole(int $userId, int $role): int
@@ -540,9 +655,15 @@ final class Auth
 
     /**
      * Removes role bits from the user's role mask.
-     *
      * Returns the new role bitmask.
      *
+     * Удаляет биты ролей из маски ролей пользователя.
+     * Возвращает новую битовую маску ролей.
+     *
+     * @param int $userId
+     * @param int $role
+     *
+     * @return int
      * @throws UnknownUserException
      */
     public function removeRole(int $userId, int $role): int
@@ -558,6 +679,11 @@ final class Auth
     /**
      * Returns the user's role bitmask.
      *
+     * Возвращает битовую маску ролей пользователя.
+     *
+     * @param int $userId
+     *
+     * @return int
      * @throws UnknownUserException
      */
     public function roles(int $userId): int
@@ -567,6 +693,8 @@ final class Auth
 
     /**
      * Returns the role names of a user.
+     *
+     * Возвращает имена ролей пользователя.
      *
      * @param array<string, int>|null $map
      * @return list<string>
@@ -579,9 +707,12 @@ final class Auth
 
     /**
      * Issues a new opaque bearer token for a user.
-     *
      * The plain token is returned once and is never stored. Only its SHA-256
      * hash is written to the users_tokens table.
+     *
+     * Выдаёт новый непрозрачный bearer-токен для пользователя.
+     * Открытый токен возвращается один раз и никогда не сохраняется.
+     * В таблицу users_tokens записывается только его SHA-256 хэш.
      *
      * @throws UnknownUserException
      */
@@ -607,8 +738,14 @@ final class Auth
 
     /**
      * Revokes a bearer token by its plain value.
-     *
      * Returns true when a token row was deleted.
+     *
+     * Отзывает bearer-токен по его открытому значению.
+     * Возвращает true, если строка токена была удалена.
+     *
+     * @param string $token
+     *
+     * @return bool
      */
     public function revokeToken(string $token): bool
     {
@@ -620,8 +757,14 @@ final class Auth
 
     /**
      * Revokes all bearer and remember-me tokens of a user.
-     *
      * Returns the number of deleted token rows.
+     *
+     * Отзывает все bearer- и remember-me токены пользователя.
+     * Возвращает количество удалённых строк токенов.
+     *
+     * @param int $userId
+     *
+     * @return int
      */
     public function revokeAllTokens(int $userId): int
     {
@@ -630,8 +773,12 @@ final class Auth
 
     /**
      * Deletes expired bearer and remember-me tokens.
-     *
      * Returns the number of deleted token rows.
+     *
+     * Удаляет истёкшие bearer- и remember-me токены.
+     * Возвращает количество удалённых строк токенов.
+     *
+     * @return int
      */
     public function deleteExpiredTokens(): int
     {
@@ -640,6 +787,10 @@ final class Auth
 
     /**
      * Logs out the current session and revokes the current bearer token, if any.
+     *
+     * Выполняет выход из текущей сессии и отзывает текущий bearer-токен, если он есть.
+     *
+     * @return void
      */
     public function logout(): void
     {
@@ -666,9 +817,16 @@ final class Auth
 
     /**
      * Invalidates every session and token of a user.
+     * Increments users.force_logout so existing sessions are rejected on their next request
+     * and deletes all users_tokens rows for the user.
      *
-     * Increments users.force_logout so existing sessions are rejected on their
-     * next request, and deletes all users_tokens rows for the user.
+     * Инвалидирует все сессии и токены пользователя.
+     * Увеличивает users.force_logout, чтобы существующие сессии отклонялись при следующем запросе
+     * и удаляет все строки users_tokens пользователя.
+     *
+     * @param int $userId
+     *
+     * @return void
      */
     public function logoutEverywhere(int $userId): void
     {
@@ -692,9 +850,116 @@ final class Auth
     }
 
     /**
-     * Updates a user's password and invalidates existing sessions and tokens.
+     * Confirms the current user's password.
+     * Useful before sensitive actions and for self-service password changes.
      *
+     * Подтверждает пароль текущего пользователя.
+     * Полезно перед чувствительными действиями и для самостоятельной смены пароля.
+     *
+     * @param string $password
+     *
+     * @return bool
+     *
+     * @throws NotLoggedInException
+     */
+    public function reconfirmPassword(string $password): bool
+    {
+        $user = $this->user();
+
+        if ($user === null) {
+            throw new NotLoggedInException('Not logged in');
+        }
+
+        $row = $this->users->findById($user->id);
+
+        if ($row === null) {
+            throw new NotLoggedInException('Not logged in');
+        }
+
+        return \password_verify($password, (string) $row['password']);
+    }
+
+    /**
+     * Changes the current user's password after checking the old password.
+     *
+     * Меняет пароль текущего пользователя после проверки старого пароля.
+     *
+     * @param string $oldPassword
+     * @param string $newPassword
+     * @param bool $keepCurrentSession
+     *
+     * @return void
+     *
+     * @throws NotLoggedInException
+     * @throws InvalidPasswordException
+     * @throws AuthException
+     */
+    public function changeOwnPassword(
+        string $oldPassword,
+        string $newPassword,
+        bool $keepCurrentSession = true,
+    ): void {
+        $userId = $this->id();
+
+        if ($userId === null) {
+            throw new NotLoggedInException('Not logged in');
+        }
+
+        if (!$this->reconfirmPassword($oldPassword)) {
+            throw new InvalidPasswordException('Invalid current password');
+        }
+
+        $this->changePassword($userId, $newPassword, $keepCurrentSession);
+    }
+
+    /**
+     * Deletes a user and all of their tokens.
+     * When the deleted user is the current user, the local session and remember
+     * cookie are cleared as well.
+     *
+     * Удаляет пользователя и все его токены.
+     * Если удаляемый пользователь является текущим, локальная сессия и remember-cookie также очищаются.
+     *
+     * @param int $userId
+     *
+     * @return void
+     *
+     * @throws UnknownUserException
+     */
+    public function deleteUser(int $userId): void
+    {
+        $this->requireUser($userId);
+        $this->tokens->deleteByUser($userId);
+        $this->users->delete($userId);
+
+        if ($this->isCurrentUser($userId)) {
+            $this->deleteRememberCookie();
+            $this->clearSessionAuth();
+
+            if (Session::isStarted()) {
+                Session::regenerate(true);
+            }
+        }
+
+        if ($this->cachedUser?->id === $userId) {
+            $this->resolved = true;
+            $this->cachedUser = null;
+            $this->currentBearerToken = null;
+        }
+    }
+
+    /**
+     * Updates a user's password and invalidates existing sessions and tokens.
      * When $keepCurrentSession is true, the current cookie session remains valid.
+     *
+     * Обновляет пароль пользователя и инвалидирует существующие сессии и токены.
+     * Если $keepCurrentSession равно true, текущая cookie-сессия остаётся действительной.
+     *
+     * @param int $userId
+     * @param string $newPassword
+     * @param bool $keepCurrentSession
+     *
+     * @return void
      *
      * @throws InvalidPasswordException
      * @throws AuthException
@@ -734,7 +999,13 @@ final class Auth
     /**
      * Authenticates a user database row and creates a session.
      *
+     * Аутентифицирует строку пользователя из БД и создаёт сессию.
+     *
      * @param array<string, mixed> $row
+     * @param string $password
+     * @param bool $remember
+     *
+     * @return User
      */
     private function loginRow(array $row, string $password, bool $remember): User
     {
@@ -785,8 +1056,14 @@ final class Auth
 
     /**
      * Resolves a user by a plain bearer token.
-     *
      * Deletes the token row when the user no longer exists or is disabled.
+     *
+     * Определяет пользователя по открытому bearer-токену.
+     * Удаляет строку токена, если пользователь больше не существует или отключён.
+     *
+     * @param string $token
+     *
+     * @return User|null
      */
     private function userByBearerToken(string $token): ?User
     {
@@ -817,8 +1094,12 @@ final class Auth
 
     /**
      * Tries to authenticate from the remember-me cookie.
-     *
      * Returns true when a session was created.
+     *
+     * Пытается аутентифицировать по remember-me cookie.
+     * Возвращает true, если сессия была создана.
+
+     * @return bool
      */
     private function processRememberCookie(): bool
     {
@@ -874,7 +1155,12 @@ final class Auth
     /**
      * Stores the authenticated user's ID and force-logout counter in the session.
      *
+     * Сохраняет ID аутентифицированного пользователя и счётчик принудительного выхода в сессии.
+     *
      * @param array<string, mixed> $row
+     * @param bool $remembered
+     *
+     * @return void
      */
     private function setSessionUser(array $row, bool $remembered): void
     {
@@ -885,8 +1171,12 @@ final class Auth
 
     /**
      * Removes authentication fields from the current session.
-     *
      * Other session data is left untouched.
+     *
+     * Удаляет поля аутентификации из текущей сессии.
+     * Остальные данные сессии не изменяются.
+     *
+     * @return void
      */
     private function clearSessionAuth(): void
     {
@@ -903,6 +1193,13 @@ final class Auth
 
     /**
      * Creates a remember-me token row and writes the corresponding HttpOnly cookie.
+     *
+     * Создаёт строку remember-me токена и записывает соответствующую HttpOnly cookie.
+     *
+     * @param int $userId
+     *
+     * @return void
+     * @throws \Exception
      */
     private function issueRememberCookie(int $userId): void
     {
@@ -930,6 +1227,11 @@ final class Auth
     /**
      * Returns a user row or throws when the user does not exist.
      *
+     * Возвращает строку пользователя или выбрасывает исключение, если пользователь не существует.
+     *
+     * @param int $userId
+     *
+     * @return array
      * @return array<string, mixed>
      * @throws UnknownUserException
      */
@@ -946,6 +1248,8 @@ final class Auth
 
     /**
      * Clears the cached user when the changed user is the current one.
+     *
+     * Сбрасывает кэшированного пользователя, если изменённый пользователь является текущим.
      */
     private function invalidateCachedUser(int $userId): void
     {
@@ -957,6 +1261,8 @@ final class Auth
 
     /**
      * Checks whether the given user ID belongs to the current session or cached user.
+     *
+     * Проверяет, принадлежит ли указанный ID пользователя текущей сессии или кэшированному пользователю.
      */
     private function isCurrentUser(int $userId): bool
     {
@@ -969,6 +1275,8 @@ final class Auth
 
     /**
      * Deletes the current remember-me cookie and its database row, if present.
+     *
+     * Удаляет текущую remember-me cookie и связанную строку в БД, если они есть.
      */
     private function deleteRememberCookie(): void
     {
@@ -990,6 +1298,8 @@ final class Auth
 
     /**
      * Starts the PHP session with the configured name and cookie parameters.
+     *
+     * Запускает PHP-сессию с настроенными именем и параметрами cookie.
      */
     private function startSession(): void
     {
@@ -1006,6 +1316,9 @@ final class Auth
 
     /**
      * Returns whether the request contains the configured session cookie.
+     *
+     *
+     * Возвращает, содержит ли запрос настроенную cookie сессии.
      */
     private function hasSessionCookie(): bool
     {
@@ -1014,6 +1327,8 @@ final class Auth
 
     /**
      * Returns whether the request contains a non-empty remember-me cookie.
+     *
+     * Возвращает, содержит ли запрос непустую remember-me cookie.
      */
     private function hasRememberCookie(): bool
     {
@@ -1024,6 +1339,8 @@ final class Auth
 
     /**
      * Extracts a Bearer token from the Authorization header, if present.
+     *
+     * Извлекает bearer-токен из заголовка Authorization, если он присутствует.
      */
     private function bearerToken(): ?string
     {
@@ -1056,6 +1373,8 @@ final class Auth
     /**
      * Updates the token's last_used timestamp no more often than touch_token_interval.
      *
+     * Обновляет метку last_used токена не чаще, чем раз в touch_token_interval.
+     *
      * @param array<string, mixed> $tokenRow
      */
     private function touchToken(array $tokenRow): void
@@ -1076,6 +1395,8 @@ final class Auth
     /**
      * Returns whether the user status is not allowed by the current policy.
      *
+     * Возвращает, запрещён ли статус пользователя текущей политикой.
+     *
      * @param array<string, mixed> $row
      */
     private function isDisabled(array $row): bool
@@ -1086,6 +1407,8 @@ final class Auth
 
     /**
      * Trims and validates an email address and returns the normalized address.
+     *
+     * Обрезает и проверяет email-адрес и возвращает нормализованный адрес.
      *
      * @throws InvalidEmailException
      */
@@ -1103,6 +1426,9 @@ final class Auth
     /**
      * Validates a new password against the configured minimum length.
      *
+     *
+     * Проверяет новый пароль на соответствие настроенной минимальной длине.
+     *
      * @throws InvalidPasswordException
      */
     private function validateNewPassword(string $password): void
@@ -1116,6 +1442,8 @@ final class Auth
 
     /**
      * Returns cookie options shared by the session and remember-me cookies.
+     *
+     * Возвращает параметры cookie, общие для сессионной и remember-me cookie.
      *
      * @return array{path: string, domain: string, secure: bool, httponly: bool, samesite: string|null}
      */
@@ -1132,6 +1460,8 @@ final class Auth
 
     /**
      * Detects whether the current request was made over HTTPS.
+     *
+     * Определяет, был ли текущий запрос выполнен по HTTPS.
      */
     private function isHttps(): bool
     {
@@ -1141,6 +1471,8 @@ final class Auth
 
     /**
      * Generates a URL-safe random token from cryptographically secure bytes.
+     *
+     * Генерирует URL-безопасный случайный токен из криптографически стойких байтов.
      */
     private static function randomToken(int $bytes = 32): string
     {
@@ -1149,6 +1481,8 @@ final class Auth
 
     /**
      * Returns the SHA-256 hash used to store tokens at rest.
+     *
+     * Возвращает SHA-256 хэш, используемый для хранения токенов.
      */
     private static function hashToken(string $token): string
     {

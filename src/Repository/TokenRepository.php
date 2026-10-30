@@ -17,6 +17,8 @@ final class TokenRepository
     /**
      * Creates a repository for the users_tokens table.
      *
+     * Создаёт репозиторий для таблицы users_tokens.
+     *
      * @param PDO $pdo
      * @param string|null $schema
      * @param string $prefix
@@ -31,6 +33,8 @@ final class TokenRepository
 
     /**
      * Stores a new bearer token hash and returns the generated row ID.
+     *
+     * Сохраняет хэш нового bearer-токена и возвращает сгенерированный ID строки.
      *
      * @param int $userId
      * @param string $tokenHash
@@ -62,6 +66,8 @@ final class TokenRepository
     /**
      * Stores a new remember-me token and returns the generated row ID.
      *
+     * Сохраняет новый remember-me токен и возвращает сгенерированный ID строки.
+     *
      * @param int $userId
      * @param string $selector
      * @param string $tokenHash
@@ -92,6 +98,8 @@ final class TokenRepository
     /**
      * Finds a non-expired bearer token by its hash.
      *
+     * Находит неистёкший bearer-токен по его хэшу.
+     *
      * @param string $tokenHash
      * @return array<string, mixed>|null
      */
@@ -107,6 +115,8 @@ final class TokenRepository
 
     /**
      * Finds a non-expired remember-me token by selector.
+     *
+     * Находит неистёкший remember-me токен по селектору.
      *
      * @param string $selector
      * @return array<string, mixed>|null
@@ -124,6 +134,8 @@ final class TokenRepository
     /**
      * Updates the token's last_used timestamp.
      *
+     * Обновляет метку last_used токена.
+     *
      * @param int $id
      *
      * @return void
@@ -138,6 +150,8 @@ final class TokenRepository
 
     /**
      * Deletes a token by ID. Returns true when a row was removed.
+     *
+     * Удаляет токен по ID. Возвращает true, если строка была удалена.
      *
      * @param int $id
      *
@@ -154,6 +168,8 @@ final class TokenRepository
     /**
      * Deletes tokens by hash, optionally filtered by kind.
      * Returns the number of deleted rows.
+     *
+     * Удаляет токены по хэшу, при необходимости с фильтром по типу. Возвращает количество удалённых строк.
      *
      * @param string $tokenHash
      * @param string|null $kind
@@ -181,6 +197,8 @@ final class TokenRepository
      * Deletes remember-me tokens by selector.
      * Returns the number of deleted rows.
      *
+     * Удаляет remember-me токены по селектору. Возвращает количество удалённых строк.
+     *
      * @param string $selector
      *
      * @return int
@@ -198,6 +216,8 @@ final class TokenRepository
     /**
      * Deletes all tokens of a user, optionally filtered by kind.
      * Returns the number of deleted rows.
+     *
+     * Удаляет все токены пользователя, при необходимости с фильтром по типу. Возвращает количество удалённых строк.
      *
      * @param int $userId
      * @param string|null $kind
@@ -226,6 +246,8 @@ final class TokenRepository
     /**
      * Deletes expired tokens and returns the number of deleted rows.
      *
+     * Удаляет истёкшие токены и возвращает количество удалённых строк.
+     *
      * @return int
      */
     public function deleteExpired(): int
@@ -240,6 +262,8 @@ final class TokenRepository
 
     /**
      * Executes a query and returns the first row as an associative array.
+     *
+     * Выполняет запрос и возвращает первую строку в виде ассоциативного массива.
      *
      * @param string $sql
      * @param array $params

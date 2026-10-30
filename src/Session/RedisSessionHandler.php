@@ -13,12 +13,22 @@ use SessionUpdateTimestampHandlerInterface;
  * Stores PHP sessions in Redis.
  *
  * Requires the phpredis extension and an already connected Redis client.
+ *
+ *
+ * Хранит PHP-сессии в Redis.
+ *
+ * Требует расширение phpredis и уже подключённый клиент Redis.
  */
 final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
 {
     /**
      * Creates a Redis-backed session handler.
      *
+     * Создаёт обработчик сессий на базе Redis.
+     *
+     * @param Redis $redis
+     * @param int $ttl
+     * @param string $prefix
      * @throws InvalidArgumentException
      */
     public function __construct(
@@ -32,7 +42,17 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
     }
 
     /**
+
+     */
+    /**
      * Opens the session storage. Redis is already connected, so this is a no-op.
+     *
+     * Открывает хранилище сессий. Redis уже подключён, поэтому ничего не делает.*
+     *
+     * @param string $path
+     * @param string $name
+     *
+     * @return bool
      */
     public function open(string $path, string $name): bool
     {
@@ -41,6 +61,10 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Closes the session storage. The Redis connection is managed externally.
+     *
+     * Закрывает хранилище сессий. Соединение Redis управляется извне.
+     *
+     * @return bool
      */
     public function close(): bool
     {
@@ -49,6 +73,13 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Reads session data by ID. Returns an empty string for missing sessions.
+     *
+     * Читает данные сессии по ID. Возвращает пустую строку для отсутствующих сессий.
+     *
+     * @param string $id
+     *
+     * @return string|false
+     * @throws \RedisException
      */
     public function read(string $id): string|false
     {
@@ -59,6 +90,15 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Writes session data with the configured TTL.
+     *
+     * Записывает данные сессии с настроенным TTL.
+     *
+     *
+     * @param string $id
+     * @param string $data
+     *
+     * @return bool
+     * @throws \RedisException
      */
     public function write(string $id, string $data): bool
     {
@@ -67,6 +107,13 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Deletes a session by ID.
+     *
+     * Удаляет сессию по ID.
+     *
+     * @param string $id
+     *
+     * @return bool
+     * @throws \RedisException
      */
     public function destroy(string $id): bool
     {
@@ -75,6 +122,12 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Redis expires sessions automatically, so garbage collection is a no-op.
+     *
+     * Redis истекает сессии автоматически, поэтому сборка мусора ничего не делает.
+     *
+     * @param int $max_lifetime
+     *
+     * @return int|false
      */
     public function gc(int $max_lifetime): int|false
     {
@@ -83,6 +136,13 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Returns whether a session with the given ID exists.
+     *
+     * Возвращает, существует ли сессия с указанным ID.
+     *
+     * @param string $id
+     *
+     * @return bool
+     * @throws \RedisException
      */
     public function validateId(string $id): bool
     {
@@ -91,6 +151,14 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
 
     /**
      * Refreshes the session TTL.
+     *
+     * Обновляет TTL сессии.
+     *
+     * @param string $id
+     * @param string $data
+     *
+     * @return bool
+     * @throws \RedisException
      */
     public function updateTimestamp(string $id, string $data): bool
     {

@@ -13,6 +13,8 @@ final class UserRepository
 
     /**
      * Creates a repository for the users table.
+     *
+     * Создаёт репозиторий для таблицы users.
      */
     public function __construct(
         private readonly PDO $pdo,
@@ -24,6 +26,8 @@ final class UserRepository
 
     /**
      * Finds a user by primary key. Returns null when not found.
+     *
+     * Находит пользователя по первичному ключу. Возвращает null, если пользователь не найден.
      *
      * @return array<string, mixed>|null
      */
@@ -38,6 +42,8 @@ final class UserRepository
     /**
      * Finds a user by email address. Returns null when not found.
      *
+     * Находит пользователя по email. Возвращает null, если пользователь не найден.
+     *
      * @return array<string, mixed>|null
      */
     public function findByEmail(string $email): ?array
@@ -50,8 +56,10 @@ final class UserRepository
 
     /**
      * Finds users by username, returning up to two rows.
-     *
      * Two rows let the caller detect an ambiguous username.
+     *
+     * Находит пользователей по имени пользователя, возвращая до двух строк.
+     * Две строки позволяют вызывающему коду обнаружить неоднозначное имя пользователя.
      *
      * @return list<array<string, mixed>>
      */
@@ -70,6 +78,8 @@ final class UserRepository
 
     /**
      * Inserts a new user and returns the generated user ID.
+     *
+     * Вставляет нового пользователя и возвращает сгенерированный ID пользователя.
      */
     public function create(
         string $email,
@@ -100,6 +110,8 @@ final class UserRepository
 
     /**
      * Updates the user's last_login timestamp.
+     *
+     * Обновляет метку last_login пользователя.
      */
     public function updateLastLogin(int $id): void
     {
@@ -111,6 +123,8 @@ final class UserRepository
 
     /**
      * Replaces the user's password hash.
+     *
+     * Заменяет хэш пароля пользователя.
      */
     public function updatePassword(int $id, string $passwordHash): void
     {
@@ -122,6 +136,8 @@ final class UserRepository
 
     /**
      * Replaces the user's role bitmask.
+     *
+     * Заменяет битовую маску ролей пользователя.
      */
     public function updateRolesMask(int $id, int $rolesMask): void
     {
@@ -133,6 +149,8 @@ final class UserRepository
 
     /**
      * Sets the verified flag for a user.
+     *
+     * Устанавливает флаг подтверждения для пользователя.
      */
     public function setVerified(int $id, bool $verified): void
     {
@@ -146,6 +164,10 @@ final class UserRepository
      * Increments force_logout and returns the new value.
      *
      * Existing sessions compare their stored counter with this value.
+     *
+     * Увеличивает force_logout и возвращает новое значение.
+     *
+     * Существующие сессии сравнивают сохранённый счётчик с этим значением.
      */
     public function incrementForceLogout(int $id): int
     {
@@ -161,6 +183,8 @@ final class UserRepository
 
     /**
      * Deletes a user by ID.
+     *
+     * Удаляет пользователя по ID.
      */
     public function delete(int $id): void
     {
@@ -170,6 +194,8 @@ final class UserRepository
 
     /**
      * Executes a query and returns the first row as an associative array.
+     *
+     * Выполняет запрос и возвращает первую строку в виде ассоциативного массива.
      *
      * @param list<int|string> $params
      * @return array<string, mixed>|null

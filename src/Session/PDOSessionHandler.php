@@ -15,14 +15,21 @@ use SessionUpdateTimestampHandlerInterface;
  * Stores PHP sessions in a PDO table.
  *
  * The table must contain id, data and last_activity columns.
+ *
+ *
+ * Хранит PHP-сессии в таблице через PDO.
+ *
+ * Таблица должна содержать столбцы id, data и last_activity.
  */
-final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
+final class PDOSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
 {
     private string $table;
     private int $ttl;
 
     /**
      * Creates a PDO-backed session handler.
+     *
+     * Создаёт обработчик сессий на базе PDO.
      *
      * @param PDO $pdo
      * @param string $table table name without prefix
@@ -50,6 +57,13 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Opens the session storage. PDO is already connected, so this is a no-op.
+     *
+     * Открывает хранилище сессий. PDO уже подключён, поэтому ничего не делает.
+     *
+     * @param string $path
+     * @param string $name
+     *
+     * @return bool
      */
     public function open(string $path, string $name): bool
     {
@@ -58,6 +72,10 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Closes the session storage. PDO is managed externally, so this is a no-op.
+     *
+     * Закрывает хранилище сессий. PDO управляется извне, поэтому ничего не делает.
+     *
+     * @return bool
      */
     public function close(): bool
     {
@@ -66,6 +84,12 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Reads session data by ID. Returns an empty string for missing or expired sessions.
+     *
+     * Читает данные сессии по ID. Возвращает пустую строку для отсутствующих или истёкших сессий.
+     *
+     * @param string $id
+     *
+     * @return string|false
      */
     public function read(string $id): string|false
     {
@@ -81,6 +105,13 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Writes session data, inserting or updating the row as needed.
+     *
+     * Записывает данные сессии, вставляя или обновляя строку по необходимости.
+     *
+     * @param string $id
+     * @param string $data
+     *
+     * @return bool
      */
     public function write(string $id, string $data): bool
     {
@@ -118,7 +149,13 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
     }
 
     /**
-     * Deletes a session by ID.
+     *  Deletes a session by ID.
+     *
+     * Удаляет сессию по ID.
+     *
+     * @param string $id
+     *
+     * @return bool
      */
     public function destroy(string $id): bool
     {
@@ -130,6 +167,12 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Deletes sessions older than the given lifetime.
+     *
+     * Удаляет сессии старше указанного времени жизни.
+     *
+     * @param int $max_lifetime
+     *
+     * @return int|false
      */
     public function gc(int $max_lifetime): int|false
     {
@@ -143,6 +186,12 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Returns whether a non-expired session with the given ID exists.
+     *
+     * Возвращает, существует ли неистёкшая сессия с указанным ID.
+     *
+     * @param string $id
+     *
+     * @return bool
      */
     public function validateId(string $id): bool
     {
@@ -156,6 +205,13 @@ final class PdoSessionHandler implements SessionHandlerInterface, SessionUpdateT
 
     /**
      * Refreshes the session's last_activity timestamp.
+     *
+     * Обновляет метку времени last_activity сессии.
+     *
+     * @param string $id
+     * @param string $data
+     *
+     * @return bool
      */
     public function updateTimestamp(string $id, string $data): bool
     {

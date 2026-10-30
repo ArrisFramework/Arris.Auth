@@ -10,6 +10,9 @@ cookie-сессии и bearer-токены в одном небольшом па
 сессию и не заставляет выбирать один режим на всё приложение. Eager-инициализацию
 можно отключить через `AuthConfig::setAutoInitialize(false)`.
 
+Пошаговые рецепты (регистрация, активация, роли, смена пароля, удаление, токены,
+middleware) — в [HOWTO.md](HOWTO.md).
+
 ## Установка
 
 ```bash
@@ -58,7 +61,7 @@ CREATE TABLE `users_tokens` (
 
 - `setSessionHandler(null)` — `Auth` не вызывает `session_set_save_handler()`;
   PHP использует глобальный `session.save_handler` (обычно `files`);
-- `setSessionHandler(new PdoSessionHandler($pdo, 'sessions'))` — handler сам пишет
+- `setSessionHandler(new PDOSessionHandler($pdo, 'sessions'))` — handler сам пишет
   сериализованные данные в таблицу `sessions` через переданный PDO;
 - `setSessionHandler(new RedisSessionHandler($redis))` — handler пишет в Redis
   через переданное подключение;
@@ -120,6 +123,32 @@ $auth = new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_TOKEN));
 `users_tokens`, только без cookie и PHP-сессии. Поэтому можно держать два экземпляра
 `Auth` — один для веба, второй для API.
 
+### Сессия или bearer: что выбрать
+
+Для браузерной админки, которую рендерит тот же бэкенд, bearer не нужен:
+
+1. `POST /login` — бэкенд проверяет пароль, создаёт сессию и ставит HttpOnly cookie.
+2. `GET /admin/` — middleware проверяет сессию и отдаёт HTML.
+3. JS делает `fetch('/api/getProjects', { credentials: 'same-origin' })`; браузер сам
+   прикладывает cookie, API-middleware проверяет ту же сессию.
+4. `POST /logout` — бэкенд уничтожает сессию.
+
+Для изменяющих запросов (`POST/PUT/DELETE`) нужна CSRF-защита. Bearer для same-origin
+браузерной админки не даёт выигрыша в безопасности: токен в JS уязвим к XSS, а
+HttpOnly session cookie — нет.
+
+Bearer нужен клиентам без cookie: мобильное приложение, CLI, внешняя интеграция,
+SPA на другом origin. Сценарий:
+
+1. `POST /api/login` — бэкенд проверяет пароль и выдаёт непрозрачный токен.
+2. Клиент хранит токен и шлёт `Authorization: Bearer <token>`.
+3. Сервер хэширует токен, ищет строку в `users_tokens`, проверяет срок и статус пользователя.
+4. `POST /api/logout` или `revokeToken()` удаляет строку — доступ сразу пропадает.
+
+Логин/логаут «на фронте» — это UI. Пароль всё равно проверяет бэкенд; он же создаёт
+сессию или выдаёт токен и отзывает его при логауте. Токен возвращается клиенту один раз,
+в БД хранится `sha256(token)`. Обязательны HTTPS, короткий TTL и отзыв.
+
 ### Своё хранилище сессий
 
 Пакет не вводит свой `SessionStorageInterface`: контракт — стандартный
@@ -127,15 +156,15 @@ $auth = new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_TOKEN));
 
 ```php
 use Arris\Auth\AuthConfig;
-use Arris\Auth\Session\PdoSessionHandler;
+use Arris\Auth\Session\PDOSessionHandler;
 
 $config = (new AuthConfig())
-    ->setSessionHandler(new PdoSessionHandler($pdo, 'sessions'));
+    ->setSessionHandler(new PDOSessionHandler($pdo, 'sessions'));
 
 $auth = new Auth($pdo, $config);
 ```
 
-Для `PdoSessionHandler` нужна таблица `sessions(id, data, last_activity)` — она добавлена
+Для `PDOSessionHandler` нужна таблица `sessions(id, data, last_activity)` — она добавлена
 в `_database/schema.sql` как опциональная. Handler также реализует
 `SessionUpdateTimestampHandlerInterface`.
 
@@ -148,12 +177,24 @@ use Redis;
 
 $redis = new Redis();
 $redis->connect('127.0.0.1', 6379);
+$redis->auth($password); // если требуется
+$redis->select(3);       // Redis DB №3
 
 $config = (new AuthConfig())
     ->setSessionHandler(new RedisSessionHandler($redis));
 
 $auth = new Auth($pdo, $config);
 ```
+
+Номер Redis DB задаётся не в `RedisSessionHandler`, а на клиенте phpredis: handler
+получает уже подключённый `\Redis` и не вызывает `connect()`/`select()`. После
+`select(3)` все команды этого соединения, включая `get/setex/del/exists/expire`
+в handler, работают в БД №3; ключи сессий имеют вид `arris:session:<id>`.
+
+`select()` переключает БД всего соединения. Если тот же клиент используется для
+других данных, создайте отдельное соединение для сессий. При `pconnect()` вызывайте
+`select()` при каждом запросе. В Redis Cluster команда `SELECT` недоступна — там
+изоляция делается префиксом ключей или отдельным кластером.
 
 `RedisSessionHandler` требует `ext-redis` и уже подключённый клиент. Вместо этих классов
 можно передать любой свой `SessionHandlerInterface`; для тестов достаточно in-memory
@@ -310,7 +351,10 @@ $auth->deleteExpiredTokens(): int;
 
 $auth->logout(): void;
 $auth->logoutEverywhere(int $userId): void;
+$auth->reconfirmPassword(string $password): bool;
+$auth->changeOwnPassword(string $oldPassword, string $newPassword, bool $keepCurrentSession = true): void;
 $auth->changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void;
+$auth->deleteUser(int $userId): void;
 
 $auth->mode(): string;
 $auth->pdo(): PDO;
@@ -390,4 +434,4 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 49 тестов, 154 assertions.
+Текущее состояние: 54 теста, 165 assertions.

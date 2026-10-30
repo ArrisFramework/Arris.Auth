@@ -8,6 +8,8 @@ final readonly class User
 {
     /**
      * Creates a read-only user value object from explicit field values.
+     *
+     * Создаёт неизменяемый объект пользователя из явно заданных значений полей.
      */
     public function __construct(
         public int $id,
@@ -26,6 +28,8 @@ final readonly class User
 
     /**
      * Creates a user object from a database row.
+     *
+     * Создаёт объект пользователя из строки базы данных.
      *
      * @param array<string, mixed> $row
      */
@@ -48,6 +52,8 @@ final readonly class User
 
     /**
      * Returns whether the user's email address has been verified.
+     *
+     * Возвращает, подтверждён ли email-адрес пользователя.
      */
     public function isVerified(): bool
     {
@@ -56,6 +62,8 @@ final readonly class User
 
     /**
      * Returns whether the account status is normal.
+     *
+     * Возвращает, является ли статус учётной записи нормальным.
      */
     public function isNormal(): bool
     {
@@ -64,6 +72,8 @@ final readonly class User
 
     /**
      * Returns whether the account is archived.
+     *
+     * Возвращает, архивирована ли учётная запись.
      */
     public function isArchived(): bool
     {
@@ -72,6 +82,8 @@ final readonly class User
 
     /**
      * Returns whether the account is banned.
+     *
+     * Возвращает, забанена ли учётная запись.
      */
     public function isBanned(): bool
     {
@@ -80,6 +92,8 @@ final readonly class User
 
     /**
      * Returns whether the account is locked.
+     *
+     * Возвращает, заблокирована ли учётная запись.
      */
     public function isLocked(): bool
     {
@@ -88,6 +102,8 @@ final readonly class User
 
     /**
      * Returns whether the account is pending review.
+     *
+     * Возвращает, ожидает ли учётная запись проверки.
      */
     public function isPendingReview(): bool
     {
@@ -96,6 +112,8 @@ final readonly class User
 
     /**
      * Returns whether the account is suspended.
+     *
+     * Возвращает, приостановлена ли учётная запись.
      */
     public function isSuspended(): bool
     {
@@ -104,6 +122,8 @@ final readonly class User
 
     /**
      * Checks whether the role bit is present in the user's role mask.
+     *
+     * Проверяет, присутствует ли бит роли в маске ролей пользователя.
      */
     public function hasRole(int $role): bool
     {
@@ -112,6 +132,8 @@ final readonly class User
 
     /**
      * Checks whether at least one of the given role bits is present.
+     *
+     * Проверяет, присутствует ли хотя бы один из указанных битов ролей.
      */
     public function hasAnyRole(int ...$roles): bool
     {
@@ -126,6 +148,8 @@ final readonly class User
 
     /**
      * Checks whether all of the given role bits are present.
+     *
+     * Проверяет, присутствуют ли все указанные биты ролей.
      */
     public function hasAllRoles(int ...$roles): bool
     {
@@ -140,8 +164,10 @@ final readonly class User
 
     /**
      * Returns the names of all roles present in the role mask.
-     *
      * Pass a custom name => bit map to use application-specific role names.
+     *
+     * Возвращает имена всех ролей, присутствующих в маске ролей.
+     * Передайте собственную карту name => bit, чтобы использовать имена ролей приложения.
      *
      * @param array<string, int>|null $map
      * @return list<string>
@@ -162,6 +188,8 @@ final readonly class User
 
     /**
      * Exports the user fields as an associative array.
+     *
+     * Экспортирует поля пользователя в виде ассоциативного массива.
      *
      * @return array<string, mixed>
      */

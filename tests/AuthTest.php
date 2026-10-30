@@ -548,6 +548,66 @@ final class AuthTest extends TestCase
         self::assertTrue(\password_verify('a new correct horse battery staple', $row['password']));
     }
 
+    public function testReconfirmPassword(): void
+    {
+        $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        self::assertTrue($auth->reconfirmPassword('correct horse battery staple'));
+        self::assertFalse($auth->reconfirmPassword('wrong password'));
+    }
+
+    public function testReconfirmPasswordRequiresLogin(): void
+    {
+        $this->expectException(NotLoggedInException::class);
+
+        $this->auth()->reconfirmPassword('correct horse battery staple');
+    }
+
+    public function testChangeOwnPasswordChecksOldPassword(): void
+    {
+        $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        try {
+            $auth->changeOwnPassword('wrong password', 'a new correct horse battery staple');
+            self::fail('Expected InvalidPasswordException');
+        } catch (InvalidPasswordException) {
+        }
+
+        $auth->changeOwnPassword('correct horse battery staple', 'a new correct horse battery staple');
+
+        self::assertTrue($auth->check());
+        self::assertTrue($auth->reconfirmPassword('a new correct horse battery staple'));
+    }
+
+    public function testDeleteUserRemovesTokensAndClearsCurrentSession(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+        $token = $auth->issueToken($id);
+
+        $auth->deleteUser($id);
+
+        self::assertNull($this->pdo->query('SELECT * FROM users WHERE id = ' . $id)->fetch() ?: null);
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+        self::assertFalse($auth->check());
+        self::assertNull($auth->id());
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+        self::assertNull($this->auth(Auth::MODE_TOKEN)->user());
+    }
+
+    public function testDeleteUserThrowsForUnknownUser(): void
+    {
+        $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
+
+        $this->auth()->deleteUser(999);
+    }
+
     public function testAdminLogoutEverywhereDoesNotClearOwnSession(): void
     {
         $adminId = $this->createUser('admin@example.com', username: 'admin');

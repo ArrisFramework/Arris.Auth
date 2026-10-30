@@ -12,6 +12,8 @@ final class Session
 {
     /**
      * The class is static; instantiation is not allowed.
+     *
+     * Класс статический; создание экземпляра запрещено.
      */
     private function __construct()
     {
@@ -19,6 +21,8 @@ final class Session
 
     /**
      * Returns whether a PHP session is currently active.
+     *
+     * Возвращает, активна ли сейчас PHP-сессия.
      */
     public static function isStarted(): bool
     {
@@ -27,6 +31,8 @@ final class Session
 
     /**
      * Starts a PHP session if it is not active yet.
+     *
+     * Запускает PHP-сессию, если она ещё не активна.
      *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $cookieOptions
      * @param SessionHandlerInterface|null $handler custom session storage handler
@@ -64,6 +70,8 @@ final class Session
 
     /**
      * Reads a value from the active session.
+     *
+     * Читает значение из активной сессии.
      */
     public static function get(string $key, mixed $default = null): mixed
     {
@@ -72,6 +80,8 @@ final class Session
 
     /**
      * Writes a value to the active session.
+     *
+     * Записывает значение в активную сессию.
      */
     public static function set(string $key, mixed $value): void
     {
@@ -80,6 +90,8 @@ final class Session
 
     /**
      * Removes a value from the active session.
+     *
+     * Удаляет значение из активной сессии.
      */
     public static function remove(string $key): void
     {
@@ -88,6 +100,8 @@ final class Session
 
     /**
      * Returns the current session ID.
+     *
+     * Возвращает ID текущей сессии.
      */
     public static function id(): string
     {
@@ -96,8 +110,10 @@ final class Session
 
     /**
      * Regenerates the session ID to prevent session fixation.
-     *
      * Returns false when no session is active.
+     *
+     * Регенерирует ID сессии для предотвращения фиксации сессии.
+     * Возвращает false, если активной сессии нет.
      */
     public static function regenerate(bool $deleteOldSession = true): bool
     {
@@ -110,6 +126,8 @@ final class Session
 
     /**
      * Destroys the active session and deletes the session cookie.
+     *
+     * Уничтожает активную сессию и удаляет cookie сессии.
      *
      * @param array{path?: string, domain?: string, secure?: bool, httponly?: bool, samesite?: string|null} $cookieOptions
      */

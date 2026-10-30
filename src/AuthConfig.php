@@ -30,6 +30,10 @@ final class AuthConfig
 
     /**
      * Returns the authentication mode.
+     *
+     * Возвращает режим аутентификации.
+     *
+     * @return string
      */
     public function getMode(): string
     {
@@ -39,6 +43,11 @@ final class AuthConfig
     /**
      * Sets the authentication mode: auto, session or token.
      *
+     * Устанавливает режим аутентификации: auto, session или token.
+     *
+     * @param string $mode
+     *
+     * @return $this
      * @throws ConfigurationException
      */
     public function setMode(string $mode): self
@@ -54,6 +63,8 @@ final class AuthConfig
 
     /**
      * Returns the table prefix.
+     *
+     * Возвращает префикс таблиц.
      */
     public function getTablePrefix(): string
     {
@@ -62,6 +73,8 @@ final class AuthConfig
 
     /**
      * Sets the table prefix.
+     *
+     * Устанавливает префикс таблиц.
      */
     public function setTablePrefix(string $prefix): self
     {
@@ -72,6 +85,8 @@ final class AuthConfig
 
     /**
      * Returns the database schema/database qualifier.
+     *
+     * Возвращает схему базы данных или квалификатор базы данных.
      */
     public function getDbSchema(): ?string
     {
@@ -80,6 +95,8 @@ final class AuthConfig
 
     /**
      * Sets the database schema/database qualifier.
+     *
+     * Устанавливает схему базы данных или квалификатор базы данных.
      */
     public function setDbSchema(?string $schema): self
     {
@@ -90,6 +107,8 @@ final class AuthConfig
 
     /**
      * Returns the PHP session name.
+     *
+     * Возвращает имя PHP-сессии.
      */
     public function getSessionName(): string
     {
@@ -98,6 +117,8 @@ final class AuthConfig
 
     /**
      * Sets the PHP session name.
+     *
+     * Устанавливает имя PHP-сессии.
      *
      * @throws ConfigurationException
      */
@@ -115,6 +136,8 @@ final class AuthConfig
     /**
      * Returns the session cookie options.
      *
+     * Возвращает параметры cookie сессии.
+     *
      * @return array<string, mixed>
      */
     public function getSessionCookie(): array
@@ -124,6 +147,8 @@ final class AuthConfig
 
     /**
      * Sets the session cookie options.
+     *
+     * Устанавливает параметры cookie сессии.
      *
      * @param array<string, mixed> $options
      */
@@ -136,6 +161,8 @@ final class AuthConfig
 
     /**
      * Returns the custom session handler.
+     *
+     * Возвращает пользовательский обработчик сессий.
      */
     public function getSessionHandler(): ?SessionHandlerInterface
     {
@@ -144,6 +171,8 @@ final class AuthConfig
 
     /**
      * Sets the custom session handler.
+     *
+     * Устанавливает пользовательский обработчик сессий.
      */
     public function setSessionHandler(?SessionHandlerInterface $handler): self
     {
@@ -154,6 +183,8 @@ final class AuthConfig
 
     /**
      * Returns the remember-me cookie name.
+     *
+     * Возвращает имя remember-me cookie.
      */
     public function getRememberCookieName(): string
     {
@@ -162,6 +193,8 @@ final class AuthConfig
 
     /**
      * Sets the remember-me cookie name.
+     *
+     * Устанавливает имя remember-me cookie.
      *
      * @throws ConfigurationException
      */
@@ -178,6 +211,8 @@ final class AuthConfig
 
     /**
      * Returns the remember-me token lifetime in seconds.
+     *
+     * Возвращает время жизни remember-me токена в секундах.
      */
     public function getRememberTtl(): int
     {
@@ -186,6 +221,8 @@ final class AuthConfig
 
     /**
      * Sets the remember-me token lifetime in seconds.
+     *
+     * Устанавливает время жизни remember-me токена в секундах.
      *
      * @throws ConfigurationException
      */
@@ -202,6 +239,8 @@ final class AuthConfig
 
     /**
      * Returns the bearer token lifetime in seconds.
+     *
+     * Возвращает время жизни bearer-токена в секундах.
      */
     public function getTokenTtl(): int
     {
@@ -210,6 +249,8 @@ final class AuthConfig
 
     /**
      * Sets the bearer token lifetime in seconds. Zero means no expiry.
+     *
+     * Устанавливает время жизни bearer-токена в секундах. Ноль означает отсутствие истечения.
      *
      * @throws ConfigurationException
      */
@@ -226,6 +267,8 @@ final class AuthConfig
 
     /**
      * Returns whether email verification is required for login.
+     *
+     * Возвращает, требуется ли подтверждение email для входа.
      */
     public function getRequireVerified(): bool
     {
@@ -234,6 +277,8 @@ final class AuthConfig
 
     /**
      * Sets whether email verification is required for login.
+     *
+     * Устанавливает, требуется ли подтверждение email для входа.
      */
     public function setRequireVerified(bool $required): self
     {
@@ -244,6 +289,8 @@ final class AuthConfig
 
     /**
      * Returns whether users with a non-normal status are rejected.
+     *
+     * Возвращает, отклоняются ли пользователи со статусом, отличным от нормального.
      */
     public function getRejectNonNormalStatus(): bool
     {
@@ -252,6 +299,8 @@ final class AuthConfig
 
     /**
      * Sets whether users with a non-normal status are rejected.
+     *
+     * Устанавливает, отклоняются ли пользователи со статусом, отличным от нормального.
      */
     public function setRejectNonNormalStatus(bool $reject): self
     {
@@ -262,6 +311,8 @@ final class AuthConfig
 
     /**
      * Returns the minimum password length.
+     *
+     * Возвращает минимальную длину пароля.
      */
     public function getMinPasswordLength(): int
     {
@@ -270,6 +321,8 @@ final class AuthConfig
 
     /**
      * Sets the minimum password length.
+     *
+     * Устанавливает минимальную длину пароля.
      *
      * @throws ConfigurationException
      */
@@ -286,6 +339,8 @@ final class AuthConfig
 
     /**
      * Returns whether successful logins update users.last_login.
+     *
+     * Возвращает, обновляют ли успешные входы users.last_login.
      */
     public function getUpdateLastLogin(): bool
     {
@@ -294,6 +349,8 @@ final class AuthConfig
 
     /**
      * Sets whether successful logins update users.last_login.
+     *
+     * Устанавливает, обновляют ли успешные входы users.last_login.
      */
     public function setUpdateLastLogin(bool $update): self
     {
@@ -304,6 +361,8 @@ final class AuthConfig
 
     /**
      * Returns the token last_used update interval in seconds.
+     *
+     * Возвращает интервал обновления last_used токена в секундах.
      */
     public function getTouchTokenInterval(): int
     {
@@ -312,6 +371,8 @@ final class AuthConfig
 
     /**
      * Sets the token last_used update interval in seconds.
+     *
+     * Устанавливает интервал обновления last_used токена в секундах.
      *
      * @throws ConfigurationException
      */
@@ -328,6 +389,8 @@ final class AuthConfig
 
     /**
      * Returns whether Auth resolves the current authentication state in its constructor.
+     *
+     * Возвращает, определяет ли Auth текущее состояние аутентификации в своём конструкторе.
      */
     public function getAutoInitialize(): bool
     {
@@ -336,10 +399,13 @@ final class AuthConfig
 
     /**
      * Enables or disables eager resolution of the current authentication state.
-     *
      * When enabled, the Auth constructor starts the session if a session or
      * remember-me cookie is present and resolves the current user immediately.
      * Anonymous visitors do not get a new session unless they log in.
+     *
+     * Включает или отключает раннее определение текущего состояния аутентификации.
+     * Когда включено, конструктор Auth запускает сессию при наличии session или remember-me cookie и сразу определяет
+     * текущего пользователя. Анонимные посетители не получают новую сессию, пока не выполнят вход.
      */
     public function setAutoInitialize(bool $enabled): self
     {
@@ -350,8 +416,10 @@ final class AuthConfig
 
     /**
      * Sets an option by its snake_case name.
-     *
      * This is a fallback for configuration hydration; typed setters are preferred.
+     *
+     * Устанавливает параметр по его имени в snake_case.
+     * Это резервный способ заполнения конфигурации; предпочтительны типизированные сеттеры.
      *
      * @throws ConfigurationException for unknown options or invalid values
      * @throws \TypeError when the value has the wrong PHP type
