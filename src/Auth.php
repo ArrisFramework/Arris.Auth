@@ -12,6 +12,7 @@ use Arris\Auth\Exception\EmailNotVerifiedException;
 use Arris\Auth\Exception\InvalidCredentialsException;
 use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
+use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UnknownUserException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Repository\TokenRepository;
@@ -78,6 +79,47 @@ final class Auth
             $this->config->getDbSchema(),
             $this->config->getTablePrefix()
         );
+
+        if ($this->config->getAutoInitialize()) {
+            $this->initialize();
+        }
+    }
+
+    /**
+     * Resolves the current authentication state eagerly.
+     *
+     * Mirrors the old library workflow: a present session cookie, remember-me
+     * cookie or bearer token is processed immediately, so isLoggedIn() and
+     * getUserId() work right after construction. Anonymous visitors do not get
+     * a new session here; the session is created on login().
+     */
+    public function initialize(): void
+    {
+        if ($this->resolved) {
+            return;
+        }
+
+        $mode = $this->config->getMode();
+
+        if ($mode !== self::MODE_SESSION && $this->bearerToken() !== null) {
+            $this->user();
+
+            return;
+        }
+
+        if ($mode === self::MODE_TOKEN) {
+            return;
+        }
+
+        if (Session::isStarted() && !empty($_SESSION[self::SESSION_USER_ID])) {
+            $this->user();
+
+            return;
+        }
+
+        if ($this->hasSessionCookie() || $this->hasRememberCookie()) {
+            $this->user();
+        }
     }
 
     /**
@@ -309,11 +351,47 @@ final class Auth
     }
 
     /**
+     * Returns whether a user is currently authenticated.
+     *
+     * Compatibility alias for check(), matching the old Delight Auth API.
+     */
+    public function isLoggedIn(): bool
+    {
+        return $this->check();
+    }
+
+    /**
+     * Returns the current user, or throws when nobody is authenticated.
+     *
+     * @throws \Arris\Auth\Exception\NotLoggedInException
+     */
+    public function userOrFail(): User
+    {
+        $user = $this->user();
+
+        if ($user === null) {
+            throw new NotLoggedInException('Not logged in');
+        }
+
+        return $user;
+    }
+
+    /**
      * Returns the current user ID, or null when nobody is authenticated.
      */
     public function id(): ?int
     {
         return $this->user()?->id;
+    }
+
+    /**
+     * Returns the current user ID, or null when nobody is authenticated.
+     *
+     * Compatibility alias for id(), matching the old Delight Auth API.
+     */
+    public function getUserId(): ?int
+    {
+        return $this->id();
     }
 
     /**
@@ -330,6 +408,56 @@ final class Auth
     public function username(): ?string
     {
         return $this->user()?->username;
+    }
+
+    /**
+     * Returns the current user, or null.
+     *
+     * Compatibility alias for user(), matching the old Delight Auth API.
+     */
+    public function getUser(): ?User
+    {
+        return $this->user();
+    }
+
+    /**
+     * Returns the current user's email address, or null.
+     *
+     * Compatibility alias for email().
+     */
+    public function getEmail(): ?string
+    {
+        return $this->email();
+    }
+
+    /**
+     * Returns the current user's username, or null.
+     *
+     * Compatibility alias for username().
+     */
+    public function getUsername(): ?string
+    {
+        return $this->username();
+    }
+
+    /**
+     * Returns the current user's role names keyed by role bit.
+     *
+     * @return array<int, string>
+     */
+    public function getRoles(): array
+    {
+        $user = $this->user();
+
+        if ($user === null) {
+            return [];
+        }
+
+        return \array_filter(
+            Role::getMap(),
+            static fn (int $role): bool => $user->hasRole($role),
+            \ARRAY_FILTER_USE_KEY
+        );
     }
 
     /**
@@ -882,6 +1010,16 @@ final class Auth
     private function hasSessionCookie(): bool
     {
         return isset($_COOKIE[$this->config->getSessionName()]);
+    }
+
+    /**
+     * Returns whether the request contains a non-empty remember-me cookie.
+     */
+    private function hasRememberCookie(): bool
+    {
+        $value = $_COOKIE[$this->config->getRememberCookieName()] ?? null;
+
+        return \is_string($value) && $value !== '';
     }
 
     /**

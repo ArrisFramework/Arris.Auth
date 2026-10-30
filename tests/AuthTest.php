@@ -13,6 +13,7 @@ use Arris\Auth\Exception\EmailNotVerifiedException;
 use Arris\Auth\Exception\InvalidCredentialsException;
 use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
+use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Role;
@@ -159,6 +160,88 @@ final class AuthTest extends TestCase
         self::assertTrue($auth->check());
         self::assertSame($id, $auth->id());
         self::assertFalse($auth->isRemembered());
+    }
+
+    public function testIsLoggedInAndGetUserIdAliases(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+
+        self::assertFalse($auth->isLoggedIn());
+        self::assertNull($auth->getUserId());
+
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        self::assertTrue($auth->isLoggedIn());
+        self::assertSame($id, $auth->getUserId());
+        self::assertSame($id, $auth->getUser()?->id);
+
+        $auth->logout();
+
+        self::assertFalse($auth->isLoggedIn());
+        self::assertNull($auth->getUserId());
+    }
+
+    public function testConstructorResolvesRememberedUser(): void
+    {
+        $id = $this->createUser();
+        $selector = \bin2hex(\random_bytes(12));
+        $token = \bin2hex(\random_bytes(32));
+
+        (new TokenRepository($this->pdo))->createRemember(
+            $id,
+            $selector,
+            \hash('sha256', $token),
+            \time() + 3600
+        );
+
+        $_COOKIE['arris_remember'] = $selector . '~' . $token;
+
+        $auth = $this->auth();
+
+        self::assertTrue($auth->isRemembered());
+        self::assertSame($id, $auth->getUserId());
+        self::assertTrue($auth->isLoggedIn());
+    }
+
+    public function testAutoInitializeCanBeDisabled(): void
+    {
+        $id = $this->createUser();
+        $selector = \bin2hex(\random_bytes(12));
+        $token = \bin2hex(\random_bytes(32));
+
+        (new TokenRepository($this->pdo))->createRemember(
+            $id,
+            $selector,
+            \hash('sha256', $token),
+            \time() + 3600
+        );
+
+        $_COOKIE['arris_remember'] = $selector . '~' . $token;
+
+        $auth = $this->auth((new AuthConfig())->setAutoInitialize(false));
+
+        self::assertFalse(\Arris\Auth\Session::isStarted());
+        self::assertFalse($auth->isRemembered());
+
+        self::assertSame($id, $auth->getUserId());
+        self::assertTrue($auth->isRemembered());
+    }
+
+    public function testUserOrFailThrowsWhenNotLoggedIn(): void
+    {
+        $this->expectException(NotLoggedInException::class);
+
+        $this->auth()->userOrFail();
+    }
+
+    public function testUserOrFailReturnsCurrentUser(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        self::assertSame($id, $auth->userOrFail()->id);
     }
 
     public function testLoginRejectsWrongPassword(): void
@@ -366,6 +449,9 @@ final class AuthTest extends TestCase
         self::assertTrue($auth->hasAnyRole(Role::AUTHOR, Role::EDITOR));
         self::assertTrue($auth->hasAllRoles(Role::ADMIN, Role::EDITOR));
         self::assertFalse($auth->hasRole(Role::MODERATOR));
+        self::assertSame('user@example.com', $auth->getEmail());
+        self::assertSame('user', $auth->getUsername());
+        self::assertSame([Role::ADMIN => 'ADMIN', Role::EDITOR => 'EDITOR'], $auth->getRoles());
 
         $user = $auth->user();
         self::assertSame($id, $user->id);

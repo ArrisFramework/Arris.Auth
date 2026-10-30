@@ -5,7 +5,10 @@ cookie-сессии и bearer-токены в одном небольшом па
 без обязательных зависимостей кроме PDO.
 
 Пакет вырос из идей `karelwintersky/arris.delight-php-auth`, но устроен проще:
-`Auth` не стартует сессию в конструкторе и не заставляет выбирать один режим на всё приложение.
+`Auth` по умолчанию, как и старая библиотека, разрешает текущую аутентификацию в
+конструкторе (session cookie, remember-me cookie, bearer), но не создаёт анонимную
+сессию и не заставляет выбирать один режим на всё приложение. Eager-инициализацию
+можно отключить через `AuthConfig::setAutoInitialize(false)`.
 
 ## Установка
 
@@ -191,6 +194,26 @@ $auth->logout();
 $auth->logoutEverywhere($auth->id());
 ```
 
+### Проверка авторизации в middleware
+
+`check()` и его старый алиас `isLoggedIn()` возвращают `bool` и полностью разрешают
+текущее состояние: bearer-токен, PHP-сессию или remember-me cookie. `user()` при этом
+может вернуть `null` — это нормальный признак «не залогинен».
+
+```php
+if (!App::$auth_driver->isLoggedIn()) {
+    throw new AccessDeniedException('Вы не авторизованы');
+}
+
+// либо сразу получить пользователя или исключение NotLoggedInException:
+$user = App::$auth_driver->userOrFail();
+```
+
+`getUserId()` — алиас `id()`, `getUser()` — алиас `user()`. При включённом
+`auto_initialize` (по умолчанию) конструктор уже обработал cookie/токен, поэтому
+`isLoggedIn()` работает сразу после `new Auth(...)`. Если сессии и cookie нет,
+конструктор ничего не создаёт; новая сессия появится только при `login()`.
+
 ### Cookie-сессия и `credentials: include`
 
 Пакет не отправляет CORS-заголовки. Для браузерного SPA с другого origin нужно:
@@ -254,11 +277,19 @@ $auth->verifyUser(int $userId): void;
 $auth->login(string $email, string $password, bool $remember = false): User;
 $auth->loginWithUsername(string $username, string $password, bool $remember = false): User;
 
+$auth->initialize(): void;
 $auth->user(): ?User;
+$auth->userOrFail(): User;
 $auth->check(): bool;
+$auth->isLoggedIn(): bool;
 $auth->id(): ?int;
+$auth->getUserId(): ?int;
+$auth->getUser(): ?User;
 $auth->email(): ?string;
+$auth->getEmail(): ?string;
 $auth->username(): ?string;
+$auth->getUsername(): ?string;
+$auth->getRoles(): array;
 $auth->isRemembered(): bool;
 
 $auth->hasRole(int $role): bool;
@@ -337,6 +368,7 @@ final class AppRole extends \Arris\Auth\Role
 | `setMinPasswordLength()` | `8` | минимальная длина пароля при регистрации/смене |
 | `setUpdateLastLogin()` | `true` | обновлять `users.last_login` |
 | `setTouchTokenInterval()` | `60` | как часто обновлять `last_used` токена; `0` — отключить |
+| `setAutoInitialize()` | `true` | разрешать текущую аутентификацию в конструкторе |
 
 `setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
 snake_case-имени из старого API. Внутри он вызывает те же типизированные сеттеры;
@@ -358,4 +390,4 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 44 теста, 132 assertions.
+Текущее состояние: 49 тестов, 154 assertions.

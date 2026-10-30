@@ -26,6 +26,7 @@ final class AuthConfig
     private int $minPasswordLength = 8;
     private bool $updateLastLogin = true;
     private int $touchTokenInterval = 60;
+    private bool $autoInitialize = true;
 
     /**
      * Returns the authentication mode.
@@ -326,6 +327,28 @@ final class AuthConfig
     }
 
     /**
+     * Returns whether Auth resolves the current authentication state in its constructor.
+     */
+    public function getAutoInitialize(): bool
+    {
+        return $this->autoInitialize;
+    }
+
+    /**
+     * Enables or disables eager resolution of the current authentication state.
+     *
+     * When enabled, the Auth constructor starts the session if a session or
+     * remember-me cookie is present and resolves the current user immediately.
+     * Anonymous visitors do not get a new session unless they log in.
+     */
+    public function setAutoInitialize(bool $enabled): self
+    {
+        $this->autoInitialize = $enabled;
+
+        return $this;
+    }
+
+    /**
      * Sets an option by its snake_case name.
      *
      * This is a fallback for configuration hydration; typed setters are preferred.
@@ -350,6 +373,7 @@ final class AuthConfig
             'min_password_length' => $this->setMinPasswordLength($value),
             'update_last_login' => $this->setUpdateLastLogin($value),
             'touch_token_interval' => $this->setTouchTokenInterval($value),
+            'auto_initialize' => $this->setAutoInitialize($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };
     }
