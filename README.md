@@ -309,6 +309,19 @@ $auth->login($email, $password, remember: true);
 хранится selector и хэш токена. При следующем запросе без активной сессии пользователь
 автоматически входит, а `$auth->isRemembered()` возвращает `true`.
 
+## Демо
+
+В `examples/` есть минимальное приложение на SQLite: вход/регистрация, remember-me,
+защищённая страница, bearer-токены и JSON API. Один front controller, без фреймворка.
+
+```bash
+composer install
+php -S localhost:8080 -t examples/public examples/public/router.php
+```
+
+Откройте <http://localhost:8080/>. Тестовые аккаунты и curl-примеры — в
+[examples/README.md](examples/README.md).
+
 ## API
 
 ```php

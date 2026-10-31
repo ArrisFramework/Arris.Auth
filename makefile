@@ -6,6 +6,9 @@ help:
 test:		##@test PHPUnit tests
 	@php ./vendor/bin/phpunit --bootstrap vendor/autoload.php --testdox tests
 
+demo:		##@demo Run examples on http://localhost:8080
+	@php -S localhost:8080 -t examples/public examples/public/router.php
+
 # ------------------------------------------------
 # Add the following 'help' target to your makefile, add help text after each target name starting with '\#\#'
 # A category can be added with @category
