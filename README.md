@@ -52,7 +52,7 @@ CREATE TABLE `users_tokens` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-Полная схема — в `_database/schema.sql`.
+Полная схема — в `_database/schema_mysql.sql`.
 
 ### Где хранятся сессии
 
@@ -165,7 +165,7 @@ $auth = new Auth($pdo, $config);
 ```
 
 Для `PDOSessionHandler` нужна таблица `sessions(id, data, last_activity)` — она добавлена
-в `_database/schema.sql` как опциональная. Handler также реализует
+в `_database/schema_mysql.sql` как опциональная. Handler также реализует
 `SessionUpdateTimestampHandlerInterface`.
 
 Redis:

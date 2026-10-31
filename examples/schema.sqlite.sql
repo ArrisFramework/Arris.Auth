@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS users_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     kind TEXT NOT NULL DEFAULT 'api',
     selector TEXT,
     token TEXT NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users_tokens (
     UNIQUE (selector)
 );
 
-CREATE INDEX IF NOT EXISTS users_tokens_user_kind ON users_tokens (user, kind);
+CREATE INDEX IF NOT EXISTS users_tokens_user_kind ON users_tokens (user_id, kind);
 CREATE INDEX IF NOT EXISTS users_tokens_expires ON users_tokens (expires);
 
 CREATE TABLE IF NOT EXISTS sessions (

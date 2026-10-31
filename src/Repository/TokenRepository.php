@@ -47,7 +47,7 @@ final class TokenRepository
     {
         $statement = $this->pdo->prepare(
             "INSERT INTO {$this->table}
-                (user, kind, selector, token, name, expires, created)
+                (user_id, kind, selector, token, name, expires, created)
              VALUES (?, ?, NULL, ?, ?, ?, ?)"
         );
 
@@ -79,7 +79,7 @@ final class TokenRepository
     {
         $statement = $this->pdo->prepare(
             "INSERT INTO {$this->table}
-                (user, kind, selector, token, name, expires, created)
+                (user_id, kind, selector, token, name, expires, created)
              VALUES (?, ?, ?, ?, NULL, ?, ?)"
         );
 
@@ -228,7 +228,7 @@ final class TokenRepository
     {
         if ($kind !== null) {
             $statement = $this->pdo->prepare(
-                "DELETE FROM {$this->table} WHERE user = ? AND kind = ?"
+                "DELETE FROM {$this->table} WHERE user_id = ? AND kind = ?"
             );
             $statement->execute([$userId, $kind]);
 
@@ -236,7 +236,7 @@ final class TokenRepository
         }
 
         $statement = $this->pdo->prepare(
-            "DELETE FROM {$this->table} WHERE user = ?"
+            "DELETE FROM {$this->table} WHERE user_id = ?"
         );
         $statement->execute([$userId]);
 
