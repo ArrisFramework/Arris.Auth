@@ -255,6 +255,8 @@ class Auth
         $row = $this->users->findByEmail($this->validateEmail($email));
 
         if ($row === null) {
+            $this->dummyPasswordVerify($password);
+
             throw new InvalidCredentialsException('Invalid email address or password');
         }
 
@@ -283,10 +285,14 @@ class Auth
         $rows = $this->users->findByUsername(\trim($username));
 
         if ($rows === []) {
+            $this->dummyPasswordVerify($password);
+
             throw new InvalidCredentialsException('Invalid username or password');
         }
 
         if (\count($rows) > 1) {
+            $this->dummyPasswordVerify($password);
+
             throw new AmbiguousUsernameException('This username is ambiguous');
         }
 
@@ -1565,6 +1571,18 @@ class Auth
         }
 
         return $email;
+    }
+
+    /**
+     * Performs work equivalent to password verification for an unknown user.
+     * Keeps login timing roughly constant so accounts cannot be enumerated.
+     *
+     * Выполняет работу, эквивалентную проверке пароля для неизвестного пользователя.
+     * Выравнивает время ответа, чтобы нельзя было перечислить учётные записи.
+     */
+    protected function dummyPasswordVerify(string $password): void
+    {
+        \password_hash($password, \PASSWORD_DEFAULT);
     }
 
     /**

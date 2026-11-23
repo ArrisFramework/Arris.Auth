@@ -257,6 +257,53 @@ final class AuthTest extends TestCase
         self::assertSame($id, $auth->userOrFail()->id);
     }
 
+    public function testLoginUsesDummyPasswordWorkForUnknownAndAmbiguousUsers(): void
+    {
+        $this->createUser('one@example.com', username: 'same');
+        $this->createUser('two@example.com', username: 'same');
+
+        $auth = new class($this->pdo, (new AuthConfig())->setSessionCookie(['secure' => false])) extends Auth {
+            public int $dummyCalls = 0;
+
+            protected function dummyPasswordVerify(string $password): void
+            {
+                $this->dummyCalls++;
+            }
+        };
+
+        try {
+            $auth->login('unknown@example.com', 'correct horse battery staple');
+            self::fail('Expected InvalidCredentialsException');
+        } catch (InvalidCredentialsException) {
+        }
+
+        self::assertSame(1, $auth->dummyCalls);
+
+        try {
+            $auth->login('one@example.com', 'wrong password');
+            self::fail('Expected InvalidCredentialsException');
+        } catch (InvalidCredentialsException) {
+        }
+
+        self::assertSame(1, $auth->dummyCalls);
+
+        try {
+            $auth->loginWithUsername('missing', 'correct horse battery staple');
+            self::fail('Expected InvalidCredentialsException');
+        } catch (InvalidCredentialsException) {
+        }
+
+        self::assertSame(2, $auth->dummyCalls);
+
+        try {
+            $auth->loginWithUsername('same', 'correct horse battery staple');
+            self::fail('Expected AmbiguousUsernameException');
+        } catch (AmbiguousUsernameException) {
+        }
+
+        self::assertSame(3, $auth->dummyCalls);
+    }
+
     public function testLoginRejectsWrongPassword(): void
     {
         $this->createUser();
