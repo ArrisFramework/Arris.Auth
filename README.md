@@ -249,13 +249,67 @@ HTTPS требуется по умолчанию. `Auth` бросает `Configu
 $config->setAllowInsecureHttp(true);
 ```
 
-`isHttps()` учитывает прямой HTTPS, порт 443, `X-Forwarded-Proto: https` и
-`X-Forwarded-SSL: on`. Proxy должен выставлять эти заголовки и не пропускать
-клиентские значения.
+`isHttps()` доверяет только `$_SERVER['HTTPS']` и порту 443. Заголовки
+`X-Forwarded-Proto` / `X-Forwarded-SSL` **не используются** — их может подделать
+клиент, если приложение доступно напрямую.
+
+### Nginx как reverse proxy
+
+Если nginx слушает `:443`, терминирует TLS и проксирует в PHP-FPM:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name example.com;
+
+    root /var/www/app/public;
+    index index.php;
+
+    location ~ \.php$ {
+        include fastcgi_params;
+
+        # PHP должен видеть HTTPS и реальный IP клиента
+        fastcgi_param HTTPS on;
+        fastcgi_param REMOTE_ADDR $remote_addr;
+
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+    }
+}
+
+server {
+    listen 80;
+    server_name example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+`fastcgi_params` обычно уже содержит `REMOTE_ADDR $remote_addr`. `X-Real-IP` и
+`real_ip_header` в этой схеме не нужны: перед nginx нет другого прокси.
+
+Если позже появится Cloudflare/LB, то только тогда:
+
+```nginx
+set_real_ip_from 10.0.0.0/8;    # адреса доверенного LB
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+```
+
+и потребуется отдельный trusted-proxy слой.
 
 `setSessionCookie(['secure' => 'auto'])` включает `Secure` для cookie. В production
 лучше задать `secure => true` явно. HSTS — на уровне сервера/приложения.
 `SameSite=None` требует `secure=true`.
+
+### Recommended production configuration
+
+- HTTPS обязателен; `setAllowInsecureHttp(true)` — только для local/dev/CLI.
+- nginx: `fastcgi_param HTTPS on;` и `REMOTE_ADDR $remote_addr`.
+- `setMailer(new YourSmtpOrApiMailer())` вместо `NativeMailer`/`mail()`.
+- `setEMailValidator()` и `setPasswordValidator()` — политика приложения.
+- `deleteExpiredThrottling()` по cron; таблица `users_throttling` растёт.
+- idle/absolute session timeout — ответственность приложения.
+- `ext-session` должен быть доступен в PHP.
+- `psr/log` logger можно подключить через `setLogger()`.
 
 ### Сессия или bearer: что выбрать
 
@@ -489,6 +543,16 @@ $config->setThrottlingOptions(new ThrottlingOptions(
 confirmation возвращают `throttled` с `retryAfter`. Для тестов/dev можно явно
 отключить: `new ThrottlingOptions(enabled: false)`.
 
+`users_throttling` растёт: один bucket на действие/email/IP. Очистка — на стороне
+приложения:
+
+```php
+$auth->deleteExpiredThrottling();
+```
+
+Например, cron раз в 10–15 минут. Случайная очистка внутри библиотеки не
+предусмотрена — она не гарантирует своевременное удаление при низком трафике.
+
 ### Валидаторы email и пароля
 
 Пакет проверяет только непустые значения. Формат email и политику пароля задаёт
@@ -606,6 +670,7 @@ $auth->deleteExpiredConfirmations(): int;
 $auth->requestPasswordReset(string $email): ResetState;
 $auth->resetPassword(string $resetKey, string $newPassword): User;
 $auth->deleteExpiredResets(): int;
+$auth->deleteExpiredThrottling(): int;
 
 $auth->login(string $email, string $password, bool $remember = false): User;
 $auth->loginWithUsername(string $username, string $password, bool $remember = false): User;
@@ -763,7 +828,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 132 теста, 373 assertions. Четыре MySQL-теста пропускаются, если
+Текущее состояние: 133 теста, 373 assertions. Четыре MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано

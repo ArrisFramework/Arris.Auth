@@ -606,6 +606,16 @@ class Auth
     }
 
     /**
+     * Deletes expired throttling buckets.
+     *
+     * Удаляет истёкшие throttling-bucket.
+     */
+    public function deleteExpiredThrottling(): int
+    {
+        return $this->throttles->deleteExpired();
+    }
+
+    /**
      * Authenticates a user by email and password and starts a cookie session.
      * When $remember is true, a long-lived remember-me cookie is created as well.
      *
@@ -2243,10 +2253,10 @@ class Auth
 
     /**
      * Detects whether the current request was made over HTTPS.
-     * Direct HTTPS, port 443 and common reverse-proxy headers are recognized.
+     * Only direct HTTPS and port 443 are trusted; forwarded headers are not.
      *
      * Определяет, был ли текущий запрос выполнен по HTTPS.
-     * Учитываются прямой HTTPS, порт 443 и типовые заголовки reverse-proxy.
+     * Доверяем только прямому HTTPS и порту 443; forwarded-заголовки не используются.
      */
     private function isHttps(): bool
     {
@@ -2254,24 +2264,7 @@ class Auth
             return true;
         }
 
-        if ((int) ($_SERVER['SERVER_PORT'] ?? 0) === 443) {
-            return true;
-        }
-
-        $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? null;
-
-        if (\is_string($forwardedProto) && $forwardedProto !== '') {
-            $proto = \strtolower(\trim(\explode(',', $forwardedProto, 2)[0]));
-
-            if ($proto === 'https') {
-                return true;
-            }
-        }
-
-        $forwardedSsl = $_SERVER['HTTP_X_FORWARDED_SSL'] ?? null;
-
-        return \is_string($forwardedSsl)
-            && \strtolower(\trim($forwardedSsl)) === 'on';
+        return (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
     }
 
     /**

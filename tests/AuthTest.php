@@ -541,6 +541,17 @@ final class AuthTest extends TestCase
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
     }
 
+    public function testDeleteExpiredThrottling(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO users_throttling (bucket, tokens, replenished_at, expires_at)
+             VALUES ('expired-bucket', 1, " . (\time() - 10) . ", " . (\time() - 1) . ")"
+        );
+
+        self::assertSame(1, $this->auth()->deleteExpiredThrottling());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_throttling')->fetchColumn());
+    }
+
     public function testLoginCreatesSession(): void
     {
         $id = $this->createUser();
@@ -652,7 +663,7 @@ final class AuthTest extends TestCase
         self::assertTrue($auth->isRemembered());
     }
 
-    public function testHttpsDetectionSupportsReverseProxyHeaders(): void
+    public function testHttpsDetectionIgnoresForwardedHeaders(): void
     {
         $method = new \ReflectionMethod(Auth::class, 'isHttps');
         $method->setAccessible(true);
@@ -661,19 +672,12 @@ final class AuthTest extends TestCase
         self::assertFalse($method->invoke($auth));
 
         $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
-        self::assertTrue($method->invoke($auth));
-
-        $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https, http';
-        self::assertTrue($method->invoke($auth));
-
-        $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'http';
         self::assertFalse($method->invoke($auth));
 
-        unset($_SERVER['HTTP_X_FORWARDED_PROTO']);
         $_SERVER['HTTP_X_FORWARDED_SSL'] = 'on';
-        self::assertTrue($method->invoke($auth));
+        self::assertFalse($method->invoke($auth));
 
-        unset($_SERVER['HTTP_X_FORWARDED_SSL']);
+        unset($_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTP_X_FORWARDED_SSL']);
         $_SERVER['HTTPS'] = 'on';
         self::assertTrue($method->invoke($auth));
 

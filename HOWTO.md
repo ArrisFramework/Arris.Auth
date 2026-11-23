@@ -720,6 +720,14 @@ $config->setThrottlingOptions(new ThrottlingOptions(
 При превышении login/registration — `TooManyRequestsException`; reset/confirmation
 возвращают `throttled`.
 
+`users_throttling` растёт; очистка — на стороне приложения:
+
+```php
+$auth->deleteExpiredThrottling();
+```
+
+Cron раз в 10–15 минут.
+
 ---
 
 ## 13. Частые ошибки

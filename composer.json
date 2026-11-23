@@ -26,6 +26,7 @@
     "require": {
         "php": "^8.2",
         "ext-pdo": "*",
+        "ext-session": "*",
         "psr/log": "^3.0"
     },
     "require-dev": {
