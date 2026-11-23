@@ -730,6 +730,7 @@ class Auth
      * @throws UnknownUserException
      * @throws EmailNotVerifiedException
      * @throws AccountDisabledException
+     * @throws ConfigurationException
      */
     public function issueToken(int $userId, ?int $ttl = null, ?string $name = null): string
     {
@@ -747,8 +748,13 @@ class Auth
             throw new AccountDisabledException('This account is disabled');
         }
 
-        $token = self::randomToken(32);
         $ttl ??= $this->config->getTokenTtl();
+
+        if ($ttl < 0) {
+            throw new ConfigurationException('Token TTL cannot be negative');
+        }
+
+        $token = self::randomToken(32);
         $expires = $ttl > 0 ? \time() + $ttl : 0;
 
         $this->tokens->createApi(

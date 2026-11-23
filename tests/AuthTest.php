@@ -390,6 +390,20 @@ final class AuthTest extends TestCase
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
     }
 
+    public function testIssueTokenRejectsNegativeTtlWithoutWritingRow(): void
+    {
+        $id = $this->createUser();
+        $before = (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn();
+
+        try {
+            $this->auth()->issueToken($id, -1);
+            self::fail('Expected ConfigurationException');
+        } catch (ConfigurationException) {
+        }
+
+        self::assertSame($before, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+    }
+
     public function testNewBearerTokenWorksAfterForceLogout(): void
     {
         $id = $this->createUser();
