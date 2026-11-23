@@ -632,6 +632,65 @@ final class AuthTest extends TestCase
         self::assertNull($this->auth(Auth::MODE_TOKEN)->user());
     }
 
+    public function testChangePasswordRollsBackWhenTokenDeletionFails(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->issueToken($id);
+
+        $this->pdo->exec("CREATE TRIGGER fail_token_delete BEFORE DELETE ON users_tokens BEGIN SELECT RAISE(ABORT, 'fail'); END");
+
+        try {
+            $auth->changePassword($id, 'a new correct horse battery staple', false);
+            self::fail('Expected PDOException');
+        } catch (\PDOException) {
+        }
+
+        $row = $this->pdo->query('SELECT password, force_logout FROM users WHERE id = ' . $id)->fetch();
+
+        self::assertTrue(\password_verify('correct horse battery staple', (string) $row['password']));
+        self::assertSame(0, (int) $row['force_logout']);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+    }
+
+    public function testLogoutEverywhereRollsBackWhenTokenDeletionFails(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->issueToken($id);
+
+        $this->pdo->exec("CREATE TRIGGER fail_token_delete BEFORE DELETE ON users_tokens BEGIN SELECT RAISE(ABORT, 'fail'); END");
+
+        try {
+            $auth->logoutEverywhere($id);
+            self::fail('Expected PDOException');
+        } catch (\PDOException) {
+        }
+
+        $row = $this->pdo->query('SELECT force_logout FROM users WHERE id = ' . $id)->fetch();
+
+        self::assertSame(0, (int) $row['force_logout']);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+    }
+
+    public function testDeleteUserRollsBackWhenUserDeletionFails(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->issueToken($id);
+
+        $this->pdo->exec("CREATE TRIGGER fail_user_delete BEFORE DELETE ON users BEGIN SELECT RAISE(ABORT, 'fail'); END");
+
+        try {
+            $auth->deleteUser($id);
+            self::fail('Expected PDOException');
+        } catch (\PDOException) {
+        }
+
+        self::assertNotFalse($this->pdo->query('SELECT id FROM users WHERE id = ' . $id)->fetch());
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+    }
+
     public function testForceLogoutInvalidatesExistingSession(): void
     {
         $id = $this->createUser();

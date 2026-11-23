@@ -870,8 +870,11 @@ class Auth
     public function logoutEverywhere(int $userId): void
     {
         $this->ensureSessionStartedForCurrentUser();
-        $this->users->incrementForceLogout($userId);
-        $this->tokens->deleteByUser($userId);
+
+        $this->transactional(function () use ($userId): void {
+            $this->users->incrementForceLogout($userId);
+            $this->tokens->deleteByUser($userId);
+        });
 
         if ($this->isCurrentUser($userId)) {
             $this->deleteRememberCookie();
@@ -970,8 +973,11 @@ class Auth
     {
         $this->ensureSessionStartedForCurrentUser();
         $this->requireUser($userId);
-        $this->tokens->deleteByUser($userId);
-        $this->users->delete($userId);
+
+        $this->transactional(function () use ($userId): void {
+            $this->tokens->deleteByUser($userId);
+            $this->users->delete($userId);
+        });
 
         if ($this->isCurrentUser($userId)) {
             $this->deleteRememberCookie();
@@ -1017,9 +1023,13 @@ class Auth
             throw new AuthException('Unable to hash the password');
         }
 
-        $this->users->updatePassword($userId, $passwordHash);
-        $forceLogout = $this->users->incrementForceLogout($userId);
-        $this->tokens->deleteByUser($userId);
+        $forceLogout = $this->transactional(function () use ($userId, $passwordHash): int {
+            $this->users->updatePassword($userId, $passwordHash);
+            $forceLogout = $this->users->incrementForceLogout($userId);
+            $this->tokens->deleteByUser($userId);
+
+            return $forceLogout;
+        });
 
         if ($this->isCurrentUser($userId)) {
             $this->deleteRememberCookie();
@@ -1345,6 +1355,35 @@ class Auth
         }
 
         return $row;
+    }
+
+    /**
+     * Runs a callback inside a transaction owned by Auth.
+     * An existing caller transaction is left untouched.
+     *
+     * Выполняет callback в транзакции, принадлежащей Auth.
+     * Существующая транзакция вызывающего кода не затрагивается.
+     */
+    private function transactional(callable $callback): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $callback();
+        }
+
+        $this->pdo->beginTransaction();
+
+        try {
+            $result = $callback();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
     }
 
     /**
