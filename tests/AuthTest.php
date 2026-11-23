@@ -219,6 +219,37 @@ final class AuthTest extends TestCase
         self::assertTrue($auth->isLoggedIn());
     }
 
+    public function testConstructorDoesNotDispatchToOverriddenUserMethod(): void
+    {
+        $_COOKIE['arris_auth'] = 'constructor-probe';
+
+        $auth = new class($this->pdo, (new AuthConfig())->setSessionCookie(['secure' => false])) extends Auth {
+            public bool $ready = false;
+            public int $userCalls = 0;
+
+            public function __construct(PDO $pdo, ?AuthConfig $config = null)
+            {
+                parent::__construct($pdo, $config);
+                $this->ready = true;
+            }
+
+            public function user(): ?User
+            {
+                $this->userCalls++;
+
+                if (!$this->ready) {
+                    throw new \LogicException('user() was called before the constructor completed');
+                }
+
+                return parent::user();
+            }
+        };
+
+        self::assertSame(0, $auth->userCalls);
+        self::assertNull($auth->user());
+        self::assertSame(1, $auth->userCalls);
+    }
+
     public function testAutoInitializeCanBeDisabled(): void
     {
         $id = $this->createUser();

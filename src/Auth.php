@@ -117,7 +117,7 @@ class Auth
         $mode = $this->config->getMode();
 
         if ($mode !== self::MODE_SESSION && $this->bearerToken() !== null) {
-            $this->user();
+            $this->resolveUser();
 
             return;
         }
@@ -127,13 +127,13 @@ class Auth
         }
 
         if (Session::isStarted() && !empty($_SESSION[self::SESSION_USER_ID])) {
-            $this->user();
+            $this->resolveUser();
 
             return;
         }
 
         if ($this->hasSessionCookie() || $this->hasRememberCookie()) {
-            $this->user();
+            $this->resolveUser();
         }
     }
 
@@ -312,6 +312,16 @@ class Auth
      * @return User|null
      */
     public function user(): ?User
+    {
+        return $this->resolveUser();
+    }
+
+    /**
+     * Resolves the authenticated user without dispatching to an overridable method.
+     *
+     * Определяет аутентифицированного пользователя без вызова переопределяемого метода.
+     */
+    private function resolveUser(): ?User
     {
         if ($this->resolved) {
             return $this->cachedUser;
