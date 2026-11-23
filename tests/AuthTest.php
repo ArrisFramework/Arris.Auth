@@ -64,6 +64,7 @@ final class AuthTest extends TestCase
             'CREATE TABLE users_tokens (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
+                force_logout INTEGER NOT NULL DEFAULT 0,
                 kind TEXT NOT NULL DEFAULT "api",
                 selector TEXT DEFAULT NULL UNIQUE,
                 token TEXT NOT NULL,
@@ -353,6 +354,78 @@ final class AuthTest extends TestCase
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
 
         self::assertNull($this->auth(Auth::MODE_TOKEN)->user());
+    }
+
+    public function testBearerTokenIsRejectedAfterForceLogoutEvenIfRowSurvives(): void
+    {
+        $id = $this->createUser();
+        $token = $this->auth()->issueToken($id);
+
+        $this->pdo->exec('UPDATE users SET force_logout = force_logout + 1 WHERE id = ' . $id);
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        self::assertNull($this->auth(Auth::MODE_TOKEN)->user());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+    }
+
+    public function testNewBearerTokenWorksAfterForceLogout(): void
+    {
+        $id = $this->createUser();
+        $this->pdo->exec('UPDATE users SET force_logout = force_logout + 1 WHERE id = ' . $id);
+
+        $token = $this->auth()->issueToken($id);
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        $user = $this->auth(Auth::MODE_TOKEN)->user();
+
+        self::assertNotNull($user);
+        self::assertSame($id, $user->id);
+    }
+
+    public function testRememberTokenIsRejectedAfterForceLogoutEvenIfRowSurvives(): void
+    {
+        $id = $this->createUser();
+        $selector = \bin2hex(\random_bytes(12));
+        $token = \bin2hex(\random_bytes(32));
+
+        (new TokenRepository($this->pdo))->createRemember(
+            $id,
+            $selector,
+            \hash('sha256', $token),
+            \time() + 3600,
+            0
+        );
+
+        $this->pdo->exec('UPDATE users SET force_logout = force_logout + 1 WHERE id = ' . $id);
+        $_COOKIE['arris_remember'] = $selector . '~' . $token;
+
+        self::assertNull($this->auth()->user());
+    }
+
+    public function testRecentRememberTokenWorksAfterForceLogout(): void
+    {
+        $id = $this->createUser();
+        $this->pdo->exec('UPDATE users SET force_logout = force_logout + 1 WHERE id = ' . $id);
+
+        $selector = \bin2hex(\random_bytes(12));
+        $token = \bin2hex(\random_bytes(32));
+
+        (new TokenRepository($this->pdo))->createRemember(
+            $id,
+            $selector,
+            \hash('sha256', $token),
+            \time() + 3600,
+            1
+        );
+
+        $_COOKIE['arris_remember'] = $selector . '~' . $token;
+
+        $user = $this->auth()->user();
+
+        self::assertNotNull($user);
+        self::assertSame($id, $user->id);
     }
 
     public function testRevokeAllTokens(): void

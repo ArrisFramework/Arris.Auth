@@ -67,6 +67,7 @@ CREATE TABLE `users_throttling` (
 CREATE TABLE `users_tokens` (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
     `user_id` int(10) unsigned NOT NULL,
+    `force_logout` mediumint(7) unsigned NOT NULL DEFAULT 0,
     `kind` varchar(16) NOT NULL DEFAULT 'api',
     `selector` varchar(24) CHARACTER SET latin1 COLLATE latin1_general_cs DEFAULT NULL,
     `token` varchar(64) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,

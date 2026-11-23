@@ -40,15 +40,21 @@ final class TokenRepository
      * @param string $tokenHash
      * @param int $expires
      * @param string|null $name
+     * @param int $forceLogout
      *
      * @return int
      */
-    public function createApi(int $userId, string $tokenHash, int $expires, ?string $name = null): int
-    {
+    public function createApi(
+        int $userId,
+        string $tokenHash,
+        int $expires,
+        ?string $name = null,
+        int $forceLogout = 0,
+    ): int {
         $statement = $this->pdo->prepare(
             "INSERT INTO {$this->table}
-                (user_id, kind, selector, token, name, expires, created)
-             VALUES (?, ?, NULL, ?, ?, ?, ?)"
+                (user_id, kind, selector, token, name, expires, created, force_logout)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?)"
         );
 
         $statement->execute([
@@ -58,6 +64,7 @@ final class TokenRepository
             $name,
             $expires,
             \time(),
+            $forceLogout,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -72,15 +79,21 @@ final class TokenRepository
      * @param string $selector
      * @param string $tokenHash
      * @param int $expires
+     * @param int $forceLogout
      *
      * @return int
      */
-    public function createRemember(int $userId, string $selector, string $tokenHash, int $expires): int
-    {
+    public function createRemember(
+        int $userId,
+        string $selector,
+        string $tokenHash,
+        int $expires,
+        int $forceLogout = 0,
+    ): int {
         $statement = $this->pdo->prepare(
             "INSERT INTO {$this->table}
-                (user_id, kind, selector, token, name, expires, created)
-             VALUES (?, ?, ?, ?, NULL, ?, ?)"
+                (user_id, kind, selector, token, name, expires, created, force_logout)
+             VALUES (?, ?, ?, ?, NULL, ?, ?, ?)"
         );
 
         $statement->execute([
@@ -90,6 +103,7 @@ final class TokenRepository
             $tokenHash,
             $expires,
             \time(),
+            $forceLogout,
         ]);
 
         return (int) $this->pdo->lastInsertId();

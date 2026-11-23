@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS users_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
+    force_logout INTEGER NOT NULL DEFAULT 0,
     kind TEXT NOT NULL DEFAULT 'api',
     selector TEXT,
     token TEXT NOT NULL,

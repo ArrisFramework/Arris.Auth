@@ -752,7 +752,8 @@ class Auth
             $userId,
             self::hashToken($token),
             $expires,
-            $name !== null && $name !== '' ? $name : null
+            $name !== null && $name !== '' ? $name : null,
+            (int) ($userRow['force_logout'] ?? 0)
         );
 
         return $token;
@@ -1061,7 +1062,7 @@ class Auth
         $this->setSessionUser($row, false);
 
         if ($remember) {
-            $this->issueRememberCookie((int) $row['id']);
+            $this->issueRememberCookie((int) $row['id'], (int) ($row['force_logout'] ?? 0));
         }
 
         if ($this->config->getUpdateLastLogin()) {
@@ -1115,6 +1116,12 @@ class Auth
             return null;
         }
 
+        if ((int) ($tokenRow['force_logout'] ?? 0) < (int) ($userRow['force_logout'] ?? 0)) {
+            $this->tokens->delete((int) $tokenRow['id']);
+
+            return null;
+        }
+
         $this->touchToken($tokenRow);
 
         return User::fromRow($userRow);
@@ -1163,6 +1170,12 @@ class Auth
         }
 
         if ($this->isUnverified($userRow)) {
+            $this->deleteRememberCookie();
+
+            return false;
+        }
+
+        if ((int) ($tokenRow['force_logout'] ?? 0) < (int) ($userRow['force_logout'] ?? 0)) {
             $this->deleteRememberCookie();
 
             return false;
@@ -1225,11 +1238,12 @@ class Auth
      * Создаёт строку remember-me токена и записывает соответствующую HttpOnly cookie.
      *
      * @param int $userId
+     * @param int $forceLogout
      *
      * @return void
      * @throws \Exception
      */
-    private function issueRememberCookie(int $userId): void
+    private function issueRememberCookie(int $userId, int $forceLogout = 0): void
     {
         $this->deleteRememberCookie();
 
@@ -1241,7 +1255,8 @@ class Auth
             $userId,
             $selector,
             self::hashToken($token),
-            $expires
+            $expires,
+            $forceLogout
         );
 
         Cookie::set(
