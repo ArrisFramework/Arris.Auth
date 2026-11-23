@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Arris\Auth;
+namespace Arris\Auth\DTO;
+
+use Arris\Auth\Role;
 
 final readonly class User
 {

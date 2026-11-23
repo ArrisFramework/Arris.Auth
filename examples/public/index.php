@@ -10,9 +10,9 @@ use Arris\Auth\Exception\InvalidCredentialsException;
 use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
+use Arris\Auth\DTO\User;
 use Arris\Auth\Repository\UserRepository;
 use Arris\Auth\Role;
-use Arris\Auth\User;
 
 function demo_e(mixed $value): string
 {

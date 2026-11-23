@@ -17,8 +17,8 @@ use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Role;
-use Arris\Auth\Status;
-use Arris\Auth\User;
+use Arris\Auth\DTO\Status;
+use Arris\Auth\DTO\User;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -63,7 +63,7 @@ final class AuthTest extends TestCase
         $this->pdo->exec(
             'CREATE TABLE users_tokens (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
                 kind TEXT NOT NULL DEFAULT "api",
                 selector TEXT DEFAULT NULL UNIQUE,
                 token TEXT NOT NULL,
@@ -526,7 +526,7 @@ final class AuthTest extends TestCase
         $row = $this->pdo->query("SELECT * FROM users_tokens WHERE kind = 'remember'")->fetch();
 
         self::assertIsArray($row);
-        self::assertSame($id, (int) $row['user']);
+        self::assertSame($id, (int) $row['user_id']);
         self::assertNotSame('', (string) $row['selector']);
         self::assertSame(64, \strlen((string) $row['token']));
     }

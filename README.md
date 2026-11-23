@@ -19,16 +19,6 @@ middleware) — в [HOWTO.md](HOWTO.md).
 composer require karelwintersky/arris.auth
 ```
 
-Для локальной разработки:
-
-```json
-{
-    "repositories": [
-        { "type": "path", "url": "../Arris.Auth" }
-    ]
-}
-```
-
 ## Схема БД
 
 Пакет использует те же таблицы `users`, `users_confirmations`, `users_remembered`,
@@ -37,7 +27,7 @@ composer require karelwintersky/arris.auth
 ```sql
 CREATE TABLE `users_tokens` (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-    `user` int(10) unsigned NOT NULL,
+    `user_id` int(10) unsigned NOT NULL,
     `kind` varchar(16) NOT NULL DEFAULT 'api',     -- api | remember
     `selector` varchar(24) DEFAULT NULL,           -- только для remember
     `token` varchar(64) NOT NULL,                  -- sha256-хэш токена
@@ -47,7 +37,7 @@ CREATE TABLE `users_tokens` (
     `last_used` int(10) unsigned DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `selector` (`selector`),
-    KEY `user_kind` (`user`, `kind`),
+    KEY `user_kind` (`user_id`, `kind`),
     KEY `expires` (`expires`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
@@ -373,13 +363,17 @@ $auth->mode(): string;
 $auth->pdo(): PDO;
 ```
 
-`User` — readonly-объект: `id`, `email`, `username`, `status`, `verified`, `resettable`,
+`Arris\Auth\DTO\User` — readonly-объект: `id`, `email`, `username`, `status`, `verified`, `resettable`,
 `rolesMask`, `registered`, `lastLogin`, `forceLogout`, `properties`, плюс `isNormal()`,
 `isBanned()`, `hasRole()`, `roleNames()`, `toArray()`.
 
 Значения ролей совместимы с `arris.delight-php-auth`: `Arris\Auth\Role` — не final,
-его можно расширить в приложении. `Arris\Auth\Status` — backed enum; для записи в БД
+его можно расширить в приложении. `Arris\Auth\DTO\Status` — backed enum; для записи в БД
 используется `Status::NORMAL->value`.
+
+# РОЛИ
+
+## Расширение базовых ролей
 
 ```php
 final class AppRole extends \Arris\Auth\Role
@@ -433,12 +427,6 @@ snake_case-имени из старого API. Внутри он вызывае�
 PHP-тип значения — `TypeError`.
 
 Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()` и т.д.
-
-## Что пока не реализовано
-
-Пакет — рабочий MVP. Таблицы `users_confirmations`, `users_resets`, `users_throttling`
-оставлены в схеме для совместимости, но подтверждение email, сброс пароля и throttling
-пока не реализованы. Их можно добавить отдельными методами, не меняя ядро.
 
 ## Тесты
 

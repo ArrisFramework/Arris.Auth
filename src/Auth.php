@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Arris\Auth;
 
+use Arris\Auth\DTO\Status;
+use Arris\Auth\DTO\User;
 use Arris\Auth\Exception\AccountDisabledException;
 use Arris\Auth\Exception\AmbiguousUsernameException;
 use Arris\Auth\Exception\AuthException;
@@ -20,7 +22,7 @@ use Arris\Auth\Repository\UserRepository;
 use PDO;
 use PDOException;
 
-final class Auth
+class Auth
 {
     public const MODE_AUTO = 'auto';
     public const MODE_SESSION = 'session';
@@ -1073,7 +1075,7 @@ final class Auth
             return null;
         }
 
-        $userRow = $this->users->findById((int) $tokenRow['user']);
+        $userRow = $this->users->findById((int) $tokenRow['user_id']);
 
         if ($userRow === null) {
             $this->tokens->delete((int) $tokenRow['id']);
@@ -1126,7 +1128,7 @@ final class Auth
             return false;
         }
 
-        $userRow = $this->users->findById((int) $tokenRow['user']);
+        $userRow = $this->users->findById((int) $tokenRow['user_id']);
 
         if ($userRow === null || $this->isDisabled($userRow)) {
             $this->deleteRememberCookie();

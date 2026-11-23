@@ -7,7 +7,7 @@ namespace Arris\Auth;
 use Arris\Auth\Exception\ConfigurationException;
 use SessionHandlerInterface;
 
-final class AuthConfig
+class AuthConfig
 {
     private string $mode = Auth::MODE_AUTO;
     private string $tablePrefix = '';
@@ -27,6 +27,20 @@ final class AuthConfig
     private bool $updateLastLogin = true;
     private int $touchTokenInterval = 60;
     private bool $autoInitialize = true;
+
+    /**
+     * Custom E-Mail validator callback
+     *
+     * @var callable
+     */
+    public $emailValidator;
+
+    /**
+     * Custom Password validator callback
+     *
+     * @var callable
+     */
+    public $passwordValidator;
 
     /**
      * Returns the authentication mode.
@@ -444,5 +458,23 @@ final class AuthConfig
             'auto_initialize' => $this->setAutoInitialize($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };
+    }
+
+    public function setEMailValidator(callable $handler = null):self
+    {
+        if (is_callable($handler)) {
+            $this->emailValidator = $handler;
+        }
+
+        return $this;
+    }
+
+    public function setPasswordValidator(callable $handler = null):self
+    {
+        if (is_callable($handler)) {
+            $this->passwordValidator = $handler;
+        }
+
+        return $this;
     }
 }
