@@ -575,6 +575,74 @@ final class AuthTest extends TestCase
         self::assertTrue($auth->isRemembered());
     }
 
+    public function testRememberCookieIsRotatedOnUse(): void
+    {
+        $id = $this->createUser();
+        $selector = \bin2hex(\random_bytes(12));
+        $token = \bin2hex(\random_bytes(32));
+
+        (new TokenRepository($this->pdo))->createRemember(
+            $id,
+            $selector,
+            \hash('sha256', $token),
+            \time() + 3600
+        );
+
+        $oldCookie = $selector . '~' . $token;
+        $_COOKIE['arris_remember'] = $oldCookie;
+
+        $auth = $this->auth();
+
+        self::assertSame($id, $auth->user()?->id);
+
+        $newCookie = $_COOKIE['arris_remember'] ?? '';
+
+        self::assertNotSame('', $newCookie);
+        self::assertNotSame($oldCookie, $newCookie);
+        self::assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM users_tokens WHERE selector = '" . $selector . "'"
+        )->fetchColumn());
+        self::assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM users_tokens WHERE kind = 'remember'"
+        )->fetchColumn());
+
+        \session_write_close();
+        $_SESSION = [];
+        unset($_COOKIE['arris_auth']);
+        $_COOKIE['arris_remember'] = $oldCookie;
+
+        self::assertNull($this->auth()->user());
+
+        \session_write_close();
+        $_SESSION = [];
+        unset($_COOKIE['arris_auth']);
+        $_COOKIE['arris_remember'] = $newCookie;
+
+        self::assertSame($id, $this->auth()->user()?->id);
+    }
+
+    public function testInvalidRememberTokenDoesNotDeleteValidRow(): void
+    {
+        $id = $this->createUser();
+        $selector = \bin2hex(\random_bytes(12));
+        $token = \bin2hex(\random_bytes(32));
+
+        (new TokenRepository($this->pdo))->createRemember(
+            $id,
+            $selector,
+            \hash('sha256', $token),
+            \time() + 3600
+        );
+
+        $_COOKIE['arris_remember'] = $selector . '~wrong-token';
+
+        self::assertNull($this->auth()->user());
+        self::assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM users_tokens WHERE kind = 'remember'"
+        )->fetchColumn());
+        self::assertArrayNotHasKey('arris_remember', $_COOKIE);
+    }
+
     public function testInvalidRememberCookieIsRejected(): void
     {
         $this->createUser();

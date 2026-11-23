@@ -1163,7 +1163,7 @@ class Auth
         $parts = \explode(self::REMEMBER_SEPARATOR, $value, 2);
 
         if (\count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
-            $this->deleteRememberCookie();
+            $this->clearRememberCookie();
 
             return false;
         }
@@ -1171,7 +1171,7 @@ class Auth
         $tokenRow = $this->tokens->findRemember($parts[0]);
 
         if ($tokenRow === null || !\hash_equals((string) $tokenRow['token'], self::hashToken($parts[1]))) {
-            $this->deleteRememberCookie();
+            $this->clearRememberCookie();
 
             return false;
         }
@@ -1196,16 +1196,53 @@ class Auth
             return false;
         }
 
+        $this->rotateRememberCookie($tokenRow);
         $this->startSession();
         Session::regenerate(true);
         $this->setSessionUser($userRow, true);
-        $this->tokens->touch((int) $tokenRow['id']);
 
         if ($this->config->getUpdateLastLogin()) {
             $this->users->updateLastLogin((int) $userRow['id']);
         }
 
         return true;
+    }
+
+    /**
+     * Replaces a used remember-me token while preserving its expiry.
+     *
+     * Заменяет использованный remember-me токен, сохраняя срок его действия.
+     *
+     * @param array<string, mixed> $tokenRow
+     */
+    private function rotateRememberCookie(array $tokenRow): void
+    {
+        $selector = \bin2hex(\random_bytes(12));
+        $token = self::randomToken(32);
+        $expires = (int) $tokenRow['expires'];
+
+        $newId = $this->tokens->createRemember(
+            (int) $tokenRow['user_id'],
+            $selector,
+            self::hashToken($token),
+            $expires,
+            (int) ($tokenRow['force_logout'] ?? 0)
+        );
+
+        try {
+            $this->tokens->delete((int) $tokenRow['id']);
+
+            Cookie::set(
+                $this->config->getRememberCookieName(),
+                $selector . self::REMEMBER_SEPARATOR . $token,
+                $expires,
+                $this->rememberCookieOptions()
+            );
+        } catch (\Throwable $e) {
+            $this->tokens->delete($newId);
+
+            throw $e;
+        }
     }
 
     /**
@@ -1340,15 +1377,29 @@ class Auth
     {
         $name = $this->config->getRememberCookieName();
 
-        if (!isset($_COOKIE[$name]) || !\is_string($_COOKIE[$name])) {
+        if (!isset($_COOKIE[$name])) {
             return;
         }
 
-        $parts = \explode(self::REMEMBER_SEPARATOR, $_COOKIE[$name], 2);
+        if (\is_string($_COOKIE[$name])) {
+            $parts = \explode(self::REMEMBER_SEPARATOR, $_COOKIE[$name], 2);
 
-        if ($parts[0] !== '') {
-            $this->tokens->deleteBySelector($parts[0]);
+            if ($parts[0] !== '') {
+                $this->tokens->deleteBySelector($parts[0]);
+            }
         }
+
+        $this->clearRememberCookie();
+    }
+
+    /**
+     * Expires the remember-me cookie on the client without touching the database.
+     *
+     * Истекает remember-me cookie на клиенте, не изменяя базу данных.
+     */
+    private function clearRememberCookie(): void
+    {
+        $name = $this->config->getRememberCookieName();
 
         Cookie::delete($name, $this->rememberCookieOptions());
         unset($_COOKIE[$name]);
