@@ -224,10 +224,13 @@ class Auth
      *
      * @param int $userId
      * @return void
+     * @throws UnknownUserException
      */
     public function verifyUser(int $userId): void
     {
+        $this->requireUser($userId);
         $this->users->setVerified($userId, true);
+        $this->invalidateCachedUser($userId);
     }
 
     /**
@@ -988,11 +991,13 @@ class Auth
      * @return void
      *
      * @throws InvalidPasswordException
+     * @throws UnknownUserException
      * @throws AuthException
      */
     public function changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void
     {
         $this->ensureSessionStartedForCurrentUser();
+        $this->requireUser($userId);
         $this->validateNewPassword($newPassword);
 
         $passwordHash = \password_hash($newPassword, \PASSWORD_DEFAULT);

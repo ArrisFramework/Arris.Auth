@@ -274,6 +274,27 @@ final class AuthTest extends TestCase
         self::assertSame($id, $user->id);
     }
 
+    public function testVerifyUserThrowsForUnknownUser(): void
+    {
+        $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
+
+        $this->auth()->verifyUser(999);
+    }
+
+    public function testVerifyUserInvalidatesCachedUser(): void
+    {
+        $config = (new AuthConfig())->setRequireVerified(false);
+        $auth = $this->auth($config);
+        $id = $auth->register('user@example.com', 'correct horse battery staple', 'user', verified: false);
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        self::assertFalse($auth->user()?->isVerified());
+
+        $auth->verifyUser($id);
+
+        self::assertTrue($auth->user()?->isVerified());
+    }
+
     public function testLoginRejectsDisabledUser(): void
     {
         $id = $this->createUser();
@@ -730,6 +751,13 @@ final class AuthTest extends TestCase
 
         $row = $this->pdo->query('SELECT password FROM users WHERE id = ' . $id)->fetch();
         self::assertTrue(\password_verify('a new correct horse battery staple', $row['password']));
+    }
+
+    public function testChangePasswordThrowsForUnknownUser(): void
+    {
+        $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
+
+        $this->auth()->changePassword(999, 'a new correct horse battery staple');
     }
 
     public function testReconfirmPassword(): void
