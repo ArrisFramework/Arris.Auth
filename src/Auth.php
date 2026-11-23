@@ -826,6 +826,7 @@ class Auth
             );
         }
 
+        $this->ensureSessionStartedForCurrentUser();
         $this->deleteRememberCookie();
         $this->clearSessionAuth();
 
@@ -853,6 +854,7 @@ class Auth
      */
     public function logoutEverywhere(int $userId): void
     {
+        $this->ensureSessionStartedForCurrentUser();
         $this->users->incrementForceLogout($userId);
         $this->tokens->deleteByUser($userId);
 
@@ -951,6 +953,7 @@ class Auth
      */
     public function deleteUser(int $userId): void
     {
+        $this->ensureSessionStartedForCurrentUser();
         $this->requireUser($userId);
         $this->tokens->deleteByUser($userId);
         $this->users->delete($userId);
@@ -989,6 +992,7 @@ class Auth
      */
     public function changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void
     {
+        $this->ensureSessionStartedForCurrentUser();
         $this->validateNewPassword($newPassword);
 
         $passwordHash = \password_hash($newPassword, \PASSWORD_DEFAULT);
@@ -1337,6 +1341,28 @@ class Auth
 
         Cookie::delete($name, $this->rememberCookieOptions());
         unset($_COOKIE[$name]);
+    }
+
+    /**
+     * Starts the session when the request carries session state.
+     * This keeps current-user operations working with autoInitialize=false.
+     *
+     * Запускает сессию, если запрос содержит состояние сессии.
+     * Это сохраняет работоспособность операций с текущим пользователем при autoInitialize=false.
+     */
+    private function ensureSessionStartedForCurrentUser(): void
+    {
+        if ($this->config->getMode() === self::MODE_TOKEN || Session::isStarted()) {
+            return;
+        }
+
+        $hasSessionData = isset($_SESSION)
+            && \is_array($_SESSION)
+            && !empty($_SESSION[self::SESSION_USER_ID]);
+
+        if ($this->hasSessionCookie() || $hasSessionData) {
+            $this->startSession();
+        }
     }
 
     /**

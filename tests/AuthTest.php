@@ -451,6 +451,43 @@ final class AuthTest extends TestCase
         self::assertArrayNotHasKey(Auth::SESSION_USER_ID, $_SESSION);
     }
 
+    public function testLazyLogoutClearsPersistedSession(): void
+    {
+        $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        $sessionId = \session_id();
+        \session_write_close();
+        $_SESSION = [];
+        $_COOKIE['arris_auth'] = $sessionId;
+
+        $lazy = $this->auth((new AuthConfig())->setAutoInitialize(false));
+        $lazy->logout();
+
+        self::assertFalse($this->auth()->isLoggedIn());
+    }
+
+    public function testLazyChangePasswordKeepsCurrentSession(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        $sessionId = \session_id();
+        \session_write_close();
+        $_SESSION = [];
+        $_COOKIE['arris_auth'] = $sessionId;
+
+        $lazy = $this->auth((new AuthConfig())->setAutoInitialize(false));
+        $lazy->changePassword($id, 'a new correct horse battery staple', true);
+
+        $check = $this->auth();
+
+        self::assertTrue($check->isLoggedIn());
+        self::assertSame($id, $check->id());
+    }
+
     public function testLogoutEverywhereInvalidatesSessionsAndTokens(): void
     {
         $id = $this->createUser();
