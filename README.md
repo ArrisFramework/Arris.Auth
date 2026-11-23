@@ -394,6 +394,27 @@ $user = $auth->confirmUser($activationKey);
 `userConfirmationRequired = true` означает, что неверифицированный пользователь не
 может войти, даже если `requireVerified` был выключен.
 
+### Сброс пароля: конфигурация
+
+Настройки reset-flow уже есть, сам сценарий `requestPasswordReset()` /
+`resetPassword()` пока не реализован:
+
+```php
+$config->setUserResetOptions(
+    enabled: true,
+    ttl: 3600,
+    allowedAny: false,
+);
+```
+
+- `enabled` — разрешён ли сброс пароля;
+- `ttl` — время жизни reset-кода;
+- `allowedAny` — принимать любой неистёкший код, а не только последний.
+  При `false` новый запрос инвалидирует старые коды; при `true` старые коды
+  остаются рабочими до истечения TTL.
+
+`null` в любом аргументе оставляет текущее значение без изменений.
+
 ### Проверка авторизации в middleware
 
 `check()` и его старый алиас `isLoggedIn()` возвращают `bool` и полностью разрешают
@@ -617,6 +638,7 @@ $auth->roleNamesForUser($userId);  // ['GAME_MASTER', ...]
 | `setAutoInitialize()` | `true` | разрешать текущую аутентификацию в конструкторе |
 | `setRolesMap()` | `null` | карта `name => bit` для отображения ролей; `null` — базовая `Role::map()` |
 | `setUserConfirmationOptions(required: ?, ttl: ?)` | `required=false`, `ttl=3600` | параметры подтверждения email; `null` не меняет значение |
+| `setUserResetOptions(enabled: ?, ttl: ?, allowedAny: ?)` | `enabled=false`, `ttl=3600`, `allowedAny=false` | параметры сброса пароля; `null` не меняет значение |
 | `setMailer()` | `null` | `MailerInterface`; `null` — `NullMailer` |
 
 `setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
@@ -624,10 +646,12 @@ snake_case-имени из старого API. Внутри он вызывае�
 неизвестный ключ или неверное значение дают `ConfigurationException`, а неверный
 PHP-тип значения — `TypeError`. Карта ролей задаётся ключом `roles_map`,
 confirmation — `user_confirmation_required` / `user_confirmation_ttl` (старый
-`confirmation_ttl` поддерживается как алиас), мэйлер — `mailer`.
+`confirmation_ttl` поддерживается как алиас), reset — `user_reset_enabled` /
+`user_reset_ttl` / `user_reset_allowed_any`, мэйлер — `mailer`.
 
 Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()`,
-`getUserConfirmationRequired()`, `getUserConfirmationTtl()` и т.д.
+`getUserConfirmationRequired()`, `getUserConfirmationTtl()`,
+`getUserResetEnabled()`, `getUserResetTtl()`, `getUserResetAllowedAny()` и т.д.
 
 ## Тесты
 
@@ -636,7 +660,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 110 тестов, 301 assertions. Три MySQL-теста пропускаются, если
+Текущее состояние: 112 тестов, 320 assertions. Три MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано
@@ -644,8 +668,10 @@ vendor/bin/phpunit
 Пакет остаётся MVP в части account lifecycle:
 
 - нет throttling / rate limiting / lockout;
-- нет готового сценария сброса пароля; `NativeMailer::sendPasswordReset()` умеет
-  отправлять письмо, но `users_resets` и API reset-flow ещё не реализованы;
+- нет готового сценария сброса пароля: настройки `setUserResetOptions()` уже есть,
+  `NativeMailer::sendPasswordReset()` умеет отправлять письмо, но API
+  `requestPasswordReset()` / `resetPassword()` и работа с `users_resets` ещё не
+  реализованы;
 - кастомные `emailValidator` / `passwordValidator` в `AuthConfig` не вызываются;
 - таблицы `users_resets`, `users_throttling` не используются.
 
