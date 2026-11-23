@@ -42,12 +42,9 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
     }
 
     /**
-
-     */
-    /**
      * Opens the session storage. Redis is already connected, so this is a no-op.
      *
-     * Открывает хранилище сессий. Redis уже подключён, поэтому ничего не делает.*
+     * Открывает хранилище сессий. Redis уже подключён, поэтому ничего не делает.
      *
      * @param string $path
      * @param string $name
@@ -117,7 +114,9 @@ final class RedisSessionHandler implements SessionHandlerInterface, SessionUpdat
      */
     public function destroy(string $id): bool
     {
-        return $this->redis->del($this->prefix . $id) > 0;
+        $this->redis->del($this->prefix . $id);
+
+        return true;
     }
 
     /**

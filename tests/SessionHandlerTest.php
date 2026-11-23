@@ -150,6 +150,7 @@ final class SessionHandlerTest extends TestCase
             self::assertTrue($handler->updateTimestamp($id, 'payload'));
             self::assertTrue($handler->destroy($id));
             self::assertSame('', $handler->read($id));
+            self::assertTrue($handler->destroy($id));
         } finally {
             $redis->del($prefix . $id);
         }

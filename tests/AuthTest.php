@@ -853,6 +853,16 @@ final class AuthTest extends TestCase
         self::assertContains('EDITOR', $user->roleNames());
     }
 
+    public function testHasRoleZeroIsFalse(): void
+    {
+        $this->createUser(rolesMask: Role::ADMIN);
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        self::assertFalse($auth->user()?->hasRole(0));
+        self::assertTrue($auth->user()?->hasRole(Role::ADMIN));
+    }
+
     public function testRoleManagement(): void
     {
         $id = $this->createUser(rolesMask: Role::AUTHOR);

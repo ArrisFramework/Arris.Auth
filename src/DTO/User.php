@@ -129,6 +129,10 @@ final readonly class User
      */
     public function hasRole(int $role): bool
     {
+        if ($role <= 0) {
+            return false;
+        }
+
         return ($this->rolesMask & $role) === $role;
     }
 
