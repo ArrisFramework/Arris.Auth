@@ -74,6 +74,9 @@ final class AuthTest extends TestCase
                 last_used INTEGER DEFAULT NULL
             )'
         );
+
+        $this->pdo->exec('CREATE INDEX users_username ON users (username)');
+        $this->pdo->exec('CREATE INDEX users_tokens_token ON users_tokens (token)');
     }
 
     protected function tearDown(): void
@@ -110,6 +113,15 @@ final class AuthTest extends TestCase
         int $rolesMask = 0,
     ): int {
         return $this->auth()->register($email, $password, $username, $verified, $rolesMask);
+    }
+
+    public function testSchemaHasAuthLookupIndexes(): void
+    {
+        $userIndexes = \array_column($this->pdo->query("PRAGMA index_list('users')")->fetchAll(), 'name');
+        $tokenIndexes = \array_column($this->pdo->query("PRAGMA index_list('users_tokens')")->fetchAll(), 'name');
+
+        self::assertContains('users_username', $userIndexes);
+        self::assertContains('users_tokens_token', $tokenIndexes);
     }
 
     public function testRegisterCreatesUserWithHashedPassword(): void

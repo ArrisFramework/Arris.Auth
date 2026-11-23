@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     properties TEXT
 );
 
+CREATE INDEX IF NOT EXISTS users_username ON users (username);
+
 CREATE TABLE IF NOT EXISTS users_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users_tokens (
     UNIQUE (selector)
 );
 
+CREATE INDEX IF NOT EXISTS users_tokens_token ON users_tokens (token);
 CREATE INDEX IF NOT EXISTS users_tokens_user_kind ON users_tokens (user_id, kind);
 CREATE INDEX IF NOT EXISTS users_tokens_expires ON users_tokens (expires);
 

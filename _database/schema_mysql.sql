@@ -17,7 +17,8 @@ CREATE TABLE `users` (
     `force_logout` mediumint(7) unsigned NOT NULL DEFAULT 0,
     `properties` text DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `email` (`email`)
+    UNIQUE KEY `email` (`email`),
+    KEY `username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `users_confirmations` (
@@ -77,6 +78,7 @@ CREATE TABLE `users_tokens` (
     `last_used` int(10) unsigned DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `selector` (`selector`),
+    KEY `token` (`token`),
     KEY `user_kind` (`user_id`,`kind`),
     KEY `expires` (`expires`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
