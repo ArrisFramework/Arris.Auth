@@ -115,8 +115,7 @@ final class MySqlIntegrationTest extends TestCase
         $config = (new AuthConfig())
             ->setSessionName('arris_mysql_confirmation')
             ->setSessionCookie(['secure' => false, 'path' => '/'])
-            ->setUserConfirmationRequired(true)
-            ->setConfirmationTtl(60)
+            ->setUserConfirmationOptions(required: true, ttl: 60)
             ->setMailer($mailer);
 
         $auth = new Auth($this->pdo, $config);

@@ -1519,7 +1519,7 @@ class Auth
 
         $token = self::randomToken(32);
         $selector = \bin2hex(\random_bytes(8));
-        $expires = \time() + $this->config->getConfirmationTtl();
+        $expires = \time() + $this->config->getUserConfirmationTtl();
 
         $this->confirmations->create(
             $userId,

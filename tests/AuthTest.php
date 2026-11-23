@@ -96,8 +96,7 @@ final class AuthTest extends TestCase
     {
         $config ??= new AuthConfig();
         $config
-            ->setUserConfirmationRequired(true)
-            ->setConfirmationTtl(60)
+            ->setUserConfirmationOptions(required: true, ttl: 60)
             ->setMailer($mailer);
 
         return $this->auth($config);
@@ -293,7 +292,7 @@ final class AuthTest extends TestCase
 
     public function testConfirmationUsesNullMailerWhenNoMailerIsConfigured(): void
     {
-        $config = (new AuthConfig())->setUserConfirmationRequired(true);
+        $config = (new AuthConfig())->setUserConfirmationOptions(required: true);
         $auth = $this->auth($config);
 
         $user = $auth->register('null-mailer@example.com', 'correct horse battery staple', 'null-mailer');

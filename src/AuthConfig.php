@@ -561,41 +561,41 @@ class AuthConfig
     }
 
     /**
-     * Enables or disables email confirmation for new registrations.
-     *
-     * Включает или отключает подтверждение email для новых регистраций.
-     */
-    public function setUserConfirmationRequired(bool $required): self
-    {
-        $this->userConfirmationRequired = $required;
-
-        return $this;
-    }
-
-    /**
      * Returns the confirmation token lifetime in seconds.
      *
      * Возвращает время жизни confirmation-токена в секундах.
      */
-    public function getConfirmationTtl(): int
+    public function getUserConfirmationTtl(): int
     {
         return $this->confirmationTtl;
     }
 
     /**
-     * Sets the confirmation token lifetime in seconds.
+     * Sets email confirmation options.
+     * A null argument keeps the current value unchanged.
      *
-     * Устанавливает время жизни confirmation-токена в секундах.
+     * Устанавливает параметры подтверждения email.
+     * Аргумент null оставляет текущее значение без изменений.
      *
      * @throws ConfigurationException
      */
-    public function setConfirmationTtl(int $seconds): self
-    {
-        if ($seconds <= 0) {
-            throw new ConfigurationException('Confirmation TTL must be positive');
+    public function setUserConfirmationOptions(
+        bool|int|float|null $required = null,
+        int|float|null $ttl = null,
+    ): self {
+        if ($required !== null) {
+            $this->userConfirmationRequired = (bool) $required;
         }
 
-        $this->confirmationTtl = $seconds;
+        if ($ttl !== null) {
+            $seconds = (int) \round((float) $ttl);
+
+            if ($seconds <= 0) {
+                throw new ConfigurationException('Confirmation TTL must be positive');
+            }
+
+            $this->confirmationTtl = $seconds;
+        }
 
         return $this;
     }
@@ -651,8 +651,9 @@ class AuthConfig
             'touch_token_interval' => $this->setTouchTokenInterval($value),
             'auto_initialize' => $this->setAutoInitialize($value),
             'roles_map' => $this->setRolesMap($value),
-            'user_confirmation_required' => $this->setUserConfirmationRequired($value),
-            'confirmation_ttl' => $this->setConfirmationTtl($value),
+            'user_confirmation_required' => $this->setUserConfirmationOptions(required: $value),
+            'user_confirmation_ttl' => $this->setUserConfirmationOptions(ttl: $value),
+            'confirmation_ttl' => $this->setUserConfirmationOptions(ttl: $value),
             'mailer' => $this->setMailer($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };

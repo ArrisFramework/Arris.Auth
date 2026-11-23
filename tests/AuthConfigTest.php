@@ -36,7 +36,7 @@ final class AuthConfigTest extends TestCase
         self::assertTrue($config->getAutoInitialize());
         self::assertNull($config->getRolesMap());
         self::assertFalse($config->getUserConfirmationRequired());
-        self::assertSame(3600, $config->getConfirmationTtl());
+        self::assertSame(3600, $config->getUserConfirmationTtl());
         self::assertNull($config->getMailer());
     }
 
@@ -98,8 +98,7 @@ final class AuthConfigTest extends TestCase
             ->setUpdateLastLogin(false)
             ->setTouchTokenInterval(0)
             ->setAutoInitialize(false)
-            ->setUserConfirmationRequired(true)
-            ->setConfirmationTtl(120)
+            ->setUserConfirmationOptions(required: true, ttl: 120)
             ->setMailer($mailer);
 
         self::assertSame(Auth::MODE_TOKEN, $config->getMode());
@@ -118,8 +117,29 @@ final class AuthConfigTest extends TestCase
         self::assertSame(0, $config->getTouchTokenInterval());
         self::assertFalse($config->getAutoInitialize());
         self::assertTrue($config->getUserConfirmationRequired());
-        self::assertSame(120, $config->getConfirmationTtl());
+        self::assertSame(120, $config->getUserConfirmationTtl());
         self::assertSame($mailer, $config->getMailer());
+    }
+
+    public function testUserConfirmationOptionsKeepNullsAndAcceptScalars(): void
+    {
+        $config = (new AuthConfig())->setUserConfirmationOptions(required: true, ttl: 120);
+
+        $config->setUserConfirmationOptions(required: null);
+        self::assertTrue($config->getUserConfirmationRequired());
+        self::assertSame(120, $config->getUserConfirmationTtl());
+
+        $config->setUserConfirmationOptions(ttl: null);
+        self::assertSame(120, $config->getUserConfirmationTtl());
+
+        $config->setUserConfirmationOptions(required: 0);
+        self::assertFalse($config->getUserConfirmationRequired());
+
+        $config->setUserConfirmationOptions(required: 1);
+        self::assertTrue($config->getUserConfirmationRequired());
+
+        $config->setUserConfirmationOptions(ttl: 60.6);
+        self::assertSame(61, $config->getUserConfirmationTtl());
     }
 
     public function testSetOptionDispatchesToTypedSetters(): void
@@ -135,7 +155,7 @@ final class AuthConfigTest extends TestCase
             ->setOption('auto_initialize', false)
             ->setOption('roles_map', $rolesMap)
             ->setOption('user_confirmation_required', true)
-            ->setOption('confirmation_ttl', 120)
+            ->setOption('user_confirmation_ttl', 120)
             ->setOption('mailer', $mailer);
 
         self::assertSame(Auth::MODE_SESSION, $config->getMode());
@@ -145,7 +165,7 @@ final class AuthConfigTest extends TestCase
         self::assertFalse($config->getAutoInitialize());
         self::assertSame($rolesMap, $config->getRolesMap());
         self::assertTrue($config->getUserConfirmationRequired());
-        self::assertSame(120, $config->getConfirmationTtl());
+        self::assertSame(120, $config->getUserConfirmationTtl());
         self::assertSame($mailer, $config->getMailer());
     }
 
@@ -232,7 +252,7 @@ final class AuthConfigTest extends TestCase
     {
         $this->expectException(ConfigurationException::class);
 
-        (new AuthConfig())->setConfirmationTtl(0);
+        (new AuthConfig())->setUserConfirmationOptions(ttl: 0);
     }
 
     public function testAuthUsesDefaultConfigWhenNullIsPassed(): void
