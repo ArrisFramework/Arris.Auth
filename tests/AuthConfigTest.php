@@ -37,6 +37,9 @@ final class AuthConfigTest extends TestCase
         self::assertNull($config->getRolesMap());
         self::assertFalse($config->getUserConfirmationRequired());
         self::assertSame(3600, $config->getUserConfirmationTtl());
+        self::assertFalse($config->getUserResetEnabled());
+        self::assertSame(3600, $config->getUserResetTtl());
+        self::assertFalse($config->getUserResetAllowedAny());
         self::assertNull($config->getMailer());
     }
 
@@ -99,6 +102,7 @@ final class AuthConfigTest extends TestCase
             ->setTouchTokenInterval(0)
             ->setAutoInitialize(false)
             ->setUserConfirmationOptions(required: true, ttl: 120)
+            ->setUserResetOptions(enabled: true, ttl: 300, allowedAny: true)
             ->setMailer($mailer);
 
         self::assertSame(Auth::MODE_TOKEN, $config->getMode());
@@ -118,6 +122,9 @@ final class AuthConfigTest extends TestCase
         self::assertFalse($config->getAutoInitialize());
         self::assertTrue($config->getUserConfirmationRequired());
         self::assertSame(120, $config->getUserConfirmationTtl());
+        self::assertTrue($config->getUserResetEnabled());
+        self::assertSame(300, $config->getUserResetTtl());
+        self::assertTrue($config->getUserResetAllowedAny());
         self::assertSame($mailer, $config->getMailer());
     }
 
@@ -142,6 +149,30 @@ final class AuthConfigTest extends TestCase
         self::assertSame(61, $config->getUserConfirmationTtl());
     }
 
+    public function testUserResetOptionsKeepNullsAndAcceptScalars(): void
+    {
+        $config = (new AuthConfig())->setUserResetOptions(enabled: true, ttl: 120, allowedAny: true);
+
+        $config->setUserResetOptions(enabled: null);
+        self::assertTrue($config->getUserResetEnabled());
+        self::assertSame(120, $config->getUserResetTtl());
+        self::assertTrue($config->getUserResetAllowedAny());
+
+        $config->setUserResetOptions(ttl: null);
+        self::assertSame(120, $config->getUserResetTtl());
+
+        $config->setUserResetOptions(enabled: 0, allowedAny: 0);
+        self::assertFalse($config->getUserResetEnabled());
+        self::assertFalse($config->getUserResetAllowedAny());
+
+        $config->setUserResetOptions(enabled: 1, allowedAny: 1);
+        self::assertTrue($config->getUserResetEnabled());
+        self::assertTrue($config->getUserResetAllowedAny());
+
+        $config->setUserResetOptions(ttl: 60.6);
+        self::assertSame(61, $config->getUserResetTtl());
+    }
+
     public function testSetOptionDispatchesToTypedSetters(): void
     {
         $rolesMap = ['GM' => Role::ADMIN];
@@ -156,6 +187,9 @@ final class AuthConfigTest extends TestCase
             ->setOption('roles_map', $rolesMap)
             ->setOption('user_confirmation_required', true)
             ->setOption('user_confirmation_ttl', 120)
+            ->setOption('user_reset_enabled', true)
+            ->setOption('user_reset_ttl', 300)
+            ->setOption('user_reset_allowed_any', true)
             ->setOption('mailer', $mailer);
 
         self::assertSame(Auth::MODE_SESSION, $config->getMode());
@@ -166,6 +200,9 @@ final class AuthConfigTest extends TestCase
         self::assertSame($rolesMap, $config->getRolesMap());
         self::assertTrue($config->getUserConfirmationRequired());
         self::assertSame(120, $config->getUserConfirmationTtl());
+        self::assertTrue($config->getUserResetEnabled());
+        self::assertSame(300, $config->getUserResetTtl());
+        self::assertTrue($config->getUserResetAllowedAny());
         self::assertSame($mailer, $config->getMailer());
     }
 
@@ -253,6 +290,13 @@ final class AuthConfigTest extends TestCase
         $this->expectException(ConfigurationException::class);
 
         (new AuthConfig())->setUserConfirmationOptions(ttl: 0);
+    }
+
+    public function testNonPositiveUserResetTtlIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setUserResetOptions(ttl: 0);
     }
 
     public function testAuthUsesDefaultConfigWhenNullIsPassed(): void

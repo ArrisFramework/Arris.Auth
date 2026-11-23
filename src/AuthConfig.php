@@ -34,6 +34,11 @@ class AuthConfig
 
     private bool $userConfirmationRequired = false;
     private int $confirmationTtl = 3600;
+
+    private bool $userResetEnabled = false;
+    private int $userResetTtl = 3600;
+    private bool $userResetAllowedAny = false;
+
     private ?MailerInterface $mailer = null;
 
     /**
@@ -601,6 +606,71 @@ class AuthConfig
     }
 
     /**
+     * Returns whether password reset is enabled.
+     *
+     * Возвращает, включён ли сброс пароля.
+     */
+    public function getUserResetEnabled(): bool
+    {
+        return $this->userResetEnabled;
+    }
+
+    /**
+     * Returns the password reset token lifetime in seconds.
+     *
+     * Возвращает время жизни reset-токена в секундах.
+     */
+    public function getUserResetTtl(): int
+    {
+        return $this->userResetTtl;
+    }
+
+    /**
+     * Returns whether any non-expired reset code is accepted.
+     *
+     * Возвращает, принимается ли любой неистёкший reset-код.
+     */
+    public function getUserResetAllowedAny(): bool
+    {
+        return $this->userResetAllowedAny;
+    }
+
+    /**
+     * Sets password reset options.
+     * A null argument keeps the current value unchanged.
+     *
+     * Устанавливает параметры сброса пароля.
+     * Аргумент null оставляет текущее значение без изменений.
+     *
+     * @throws ConfigurationException
+     */
+    public function setUserResetOptions(
+        bool|int|float|null $enabled = null,
+        int|float|null $ttl = null,
+        bool|int|float|null $allowedAny = null,
+    ): self {
+        if ($enabled !== null) {
+            $this->userResetEnabled = (bool) $enabled;
+        }
+
+        if ($ttl !== null) {
+            $seconds = (int) \round((float) $ttl);
+
+            if ($seconds <= 0) {
+                throw new ConfigurationException('User reset TTL must be positive');
+            }
+
+            $this->userResetTtl = $seconds;
+        }
+
+        if ($allowedAny !== null) {
+            $this->userResetAllowedAny = (bool) $allowedAny;
+        }
+
+        return $this;
+    }
+
+    /**
      * Returns the configured mailer, or null to use NullMailer.
      *
      * Возвращает настроенный мэйлер или null для использования NullMailer.
@@ -654,6 +724,9 @@ class AuthConfig
             'user_confirmation_required' => $this->setUserConfirmationOptions(required: $value),
             'user_confirmation_ttl' => $this->setUserConfirmationOptions(ttl: $value),
             'confirmation_ttl' => $this->setUserConfirmationOptions(ttl: $value),
+            'user_reset_enabled' => $this->setUserResetOptions(enabled: $value),
+            'user_reset_ttl' => $this->setUserResetOptions(ttl: $value),
+            'user_reset_allowed_any' => $this->setUserResetOptions(allowedAny: $value),
             'mailer' => $this->setMailer($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };
