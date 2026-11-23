@@ -20,7 +20,11 @@ use Arris\Auth\Role;
 use Arris\Auth\DTO\ConfirmationState;
 use Arris\Auth\DTO\ResetState;
 use Arris\Auth\DTO\Status;
+use Arris\Auth\DTO\ThrottleRule;
+use Arris\Auth\DTO\ThrottlingOptions;
 use Arris\Auth\DTO\User;
+use Arris\Auth\DTO\UserConfirmationOptions;
+use Arris\Auth\DTO\UserResetOptions;
 use Tests\Support\RecordingMailer;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -71,13 +75,19 @@ final class AuthTest extends TestCase
         parent::tearDown();
     }
 
-    private function auth(AuthConfig|string|null $config = null): Auth
+    private function auth(AuthConfig|string|null $config = null, bool $throttling = false): Auth
     {
         if (\is_string($config)) {
             $config = (new AuthConfig())->setMode($config);
         }
 
         $config ??= new AuthConfig();
+        $config->setAllowInsecureHttp(true);
+
+        if (!$throttling) {
+            $config->setThrottlingOptions(new ThrottlingOptions(enabled: false));
+        }
+
         $config->setSessionCookie(\array_replace(['secure' => false], $config->getSessionCookie()));
 
         return new Auth($this->pdo, $config);
@@ -97,7 +107,7 @@ final class AuthTest extends TestCase
     {
         $config ??= new AuthConfig();
         $config
-            ->setUserConfirmationOptions(required: true, ttl: 60)
+            ->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 60))
             ->setMailer($mailer);
 
         return $this->auth($config);
@@ -110,7 +120,7 @@ final class AuthTest extends TestCase
     ): Auth {
         $config ??= new AuthConfig();
         $config
-            ->setUserResetOptions(enabled: true, ttl: 60, allowedAny: $allowedAny)
+            ->setUserResetOptions(new UserResetOptions(enabled: true, ttl: 60, allowedAny: $allowedAny))
             ->setMailer($mailer);
 
         return $this->auth($config);
@@ -149,18 +159,26 @@ final class AuthTest extends TestCase
         self::assertTrue(\password_verify('correct horse battery staple', $row['password']));
     }
 
-    public function testRegisterRejectsInvalidEmail(): void
+    public function testRegisterRejectsInvalidEmailWithCustomValidator(): void
     {
+        $config = (new AuthConfig())->setEMailValidator(
+            static fn (string $email): bool => \filter_var($email, \FILTER_VALIDATE_EMAIL) !== false
+        );
+
         $this->expectException(InvalidEmailException::class);
 
-        $this->auth()->register('not-an-email', 'correct horse battery staple');
+        $this->auth($config)->register('not-an-email', 'correct horse battery staple');
     }
 
-    public function testRegisterRejectsShortPassword(): void
+    public function testRegisterRejectsPasswordRejectedByCustomValidator(): void
     {
+        $config = (new AuthConfig())->setPasswordValidator(
+            static fn (string $password): bool => \strlen($password) >= 8
+        );
+
         $this->expectException(InvalidPasswordException::class);
 
-        $this->auth()->register('user@example.com', 'short');
+        $this->auth($config)->register('user@example.com', 'short');
     }
 
     public function testRegisterRejectsDuplicateEmail(): void
@@ -309,9 +327,11 @@ final class AuthTest extends TestCase
         self::assertFalse($state->isSent());
     }
 
-    public function testConfirmationUsesNullMailerWhenNoMailerIsConfigured(): void
+    public function testConfirmationUsesExplicitNullMailer(): void
     {
-        $config = (new AuthConfig())->setUserConfirmationOptions(required: true);
+        $config = (new AuthConfig())
+            ->setUserConfirmationOptions(new UserConfirmationOptions(required: true))
+            ->setMailer(new \Arris\Auth\Mailer\NullMailer());
         $auth = $this->auth($config);
 
         $user = $auth->register('null-mailer@example.com', 'correct horse battery staple', 'null-mailer');
@@ -581,7 +601,7 @@ final class AuthTest extends TestCase
     {
         $_COOKIE['arris_auth'] = 'constructor-probe';
 
-        $auth = new class($this->pdo, (new AuthConfig())->setSessionCookie(['secure' => false])) extends Auth {
+        $auth = new class($this->pdo, (new AuthConfig())->setAllowInsecureHttp(true)->setSessionCookie(['secure' => false])) extends Auth {
             public bool $ready = false;
             public int $userCalls = 0;
 
@@ -683,7 +703,7 @@ final class AuthTest extends TestCase
         $this->createUser('one@example.com', username: 'same');
         $this->createUser('two@example.com', username: 'same');
 
-        $auth = new class($this->pdo, (new AuthConfig())->setSessionCookie(['secure' => false])) extends Auth {
+        $auth = new class($this->pdo, (new AuthConfig())->setAllowInsecureHttp(true)->setSessionCookie(['secure' => false])) extends Auth {
             public int $dummyCalls = 0;
 
             protected function dummyPasswordVerify(string $password): void
@@ -723,6 +743,167 @@ final class AuthTest extends TestCase
         }
 
         self::assertSame(3, $auth->dummyCalls);
+    }
+
+    public function testHttpsIsRequiredByDefault(): void
+    {
+        unset($_SERVER['HTTPS'], $_SERVER['SERVER_PORT'], $_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTP_X_FORWARDED_SSL']);
+
+        $this->expectException(\Arris\Auth\Exception\ConfigurationException::class);
+        new Auth(new PDO('sqlite::memory:'));
+    }
+
+    public function testAllowInsecureHttpOptOut(): void
+    {
+        unset($_SERVER['HTTPS'], $_SERVER['SERVER_PORT'], $_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTP_X_FORWARDED_SSL']);
+
+        $auth = new Auth(
+            new PDO('sqlite::memory:'),
+            (new AuthConfig())->setAllowInsecureHttp(true)
+        );
+
+        self::assertSame(Auth::MODE_AUTO, $auth->mode());
+    }
+
+    public function testEmptyEmailAndPasswordAreRejected(): void
+    {
+        try {
+            $this->auth()->register('', 'correct horse battery staple');
+            self::fail('Expected InvalidEmailException');
+        } catch (InvalidEmailException) {
+        }
+
+        $this->expectException(InvalidPasswordException::class);
+        $this->auth()->register('user@example.com', '');
+    }
+
+    public function testOneCharacterPasswordAndNonEmailStringAreAcceptedWithoutValidators(): void
+    {
+        $user = $this->auth()->register('not-an-email', 'x');
+
+        self::assertSame('not-an-email', $user->email);
+        self::assertTrue($user->isVerified());
+    }
+
+    public function testLoggerReceivesTokenOnlyInDebugMode(): void
+    {
+        $logger = new class extends \Psr\Log\AbstractLogger {
+            /** @var list<array{level: mixed, message: string, context: array<string, mixed>}> */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => $level,
+                    'message' => (string) $message,
+                    'context' => $context,
+                ];
+            }
+        };
+
+        $config = (new AuthConfig())->setLogger($logger, debug: true);
+        $auth = $this->auth($config);
+        $id = $auth->register('logger@example.com', 'correct horse battery staple')->id;
+        $token = $auth->issueToken($id, name: 'logger-test');
+
+        self::assertNotSame([], $logger->records);
+
+        $tokenRecords = \array_values(\array_filter(
+            $logger->records,
+            static fn (array $record): bool => ($record['context']['token'] ?? null) === $token
+        ));
+
+        self::assertCount(1, $tokenRecords);
+    }
+
+    public function testLoggerOmitsTokenWhenDebugIsDisabled(): void
+    {
+        $logger = new class extends \Psr\Log\AbstractLogger {
+            /** @var list<array<string, mixed>> */
+            public array $contexts = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->contexts[] = $context;
+            }
+        };
+
+        $config = (new AuthConfig())->setLogger($logger, debug: false);
+        $auth = $this->auth($config);
+        $id = $auth->register('logger-no-debug@example.com', 'correct horse battery staple')->id;
+        $auth->issueToken($id, name: 'logger-test');
+
+        foreach ($logger->contexts as $context) {
+            self::assertArrayNotHasKey('token', $context);
+        }
+    }
+
+    public function testLoginIsThrottledAfterLimit(): void
+    {
+        $this->createUser('throttle-login@example.com');
+
+        $config = (new AuthConfig())->setThrottlingOptions(
+            new ThrottlingOptions(enabled: true, login: new ThrottleRule(2, 60))
+        );
+        $auth = $this->auth($config, true);
+
+        for ($i = 0; $i < 2; $i++) {
+            try {
+                $auth->login('throttle-login@example.com', 'wrong password');
+            } catch (InvalidCredentialsException) {
+            }
+        }
+
+        $this->expectException(\Arris\Auth\Exception\TooManyRequestsException::class);
+        $auth->login('throttle-login@example.com', 'wrong password');
+    }
+
+    public function testRegistrationIsThrottledAfterLimit(): void
+    {
+        $config = (new AuthConfig())->setThrottlingOptions(
+            new ThrottlingOptions(enabled: true, registration: new ThrottleRule(1, 60))
+        );
+        $auth = $this->auth($config, true);
+
+        $auth->register('throttle-one@example.com', 'correct horse battery staple');
+
+        $this->expectException(\Arris\Auth\Exception\TooManyRequestsException::class);
+        $auth->register('throttle-two@example.com', 'correct horse battery staple');
+    }
+
+    public function testPasswordResetRequestIsThrottled(): void
+    {
+        $mailer = new RecordingMailer();
+        $config = (new AuthConfig())
+            ->setUserResetOptions(new UserResetOptions(enabled: true, ttl: 60))
+            ->setThrottlingOptions(new ThrottlingOptions(enabled: true, reset: new ThrottleRule(1, 60)))
+            ->setMailer($mailer);
+        $auth = $this->auth($config, true);
+        $this->createUser('throttle-reset@example.com');
+
+        self::assertTrue($auth->requestPasswordReset('throttle-reset@example.com')->isSent());
+        self::assertSame(
+            ResetState::THROTTLED,
+            $auth->requestPasswordReset('throttle-reset@example.com')->reason
+        );
+    }
+
+    public function testConfirmationResendIsThrottled(): void
+    {
+        $mailer = new RecordingMailer();
+        $config = (new AuthConfig())
+            ->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 60))
+            ->setThrottlingOptions(new ThrottlingOptions(enabled: true, confirmation: new ThrottleRule(1, 60)))
+            ->setMailer($mailer);
+        $auth = $this->auth($config, true);
+
+        $auth->register('throttle-confirm@example.com', 'correct horse battery staple');
+
+        self::assertTrue($auth->resendConfirmation('throttle-confirm@example.com')->isSent());
+        self::assertSame(
+            ConfirmationState::THROTTLED,
+            $auth->resendConfirmation('throttle-confirm@example.com')->reason
+        );
     }
 
     public function testLoginRejectsWrongPassword(): void

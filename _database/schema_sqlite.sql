@@ -44,6 +44,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_resets_selector ON users_resets (selecto
 CREATE INDEX IF NOT EXISTS users_resets_token ON users_resets (token);
 CREATE INDEX IF NOT EXISTS users_resets_user_expires ON users_resets (user_id, expires);
 
+CREATE TABLE IF NOT EXISTS users_throttling (
+    bucket TEXT PRIMARY KEY,
+    tokens REAL NOT NULL,
+    replenished_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS users_throttling_expires_at ON users_throttling (expires_at);
+
 CREATE TABLE IF NOT EXISTS users_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,

@@ -1,4 +1,4 @@
--- Arris.Auth 0.4.0 migration from the Delight PHP Auth schema.
+-- Migration from the Delight PHP Auth schema.
 -- Target: MySQL/MariaDB. Run on a backup/copy first.
 --
 -- The reverse migration is documented in README.md.

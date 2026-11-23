@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace Arris\Auth;
 
+use Arris\Auth\DTO\ThrottlingOptions;
+use Arris\Auth\DTO\UserConfirmationOptions;
+use Arris\Auth\DTO\UserResetOptions;
 use Arris\Auth\Exception\ConfigurationException;
 use Arris\Auth\Mailer\MailerInterface;
+use Arris\Auth\Mailer\NativeMailer;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use SessionHandlerInterface;
 
 class AuthConfig
@@ -24,22 +30,21 @@ class AuthConfig
     private int $tokenTtl = 60 * 60 * 24 * 30;
     private bool $requireVerified = true;
     private bool $rejectNonNormalStatus = true;
-    private int $minPasswordLength = 8;
     private bool $updateLastLogin = true;
     private int $touchTokenInterval = 60;
     private bool $autoInitialize = true;
+    private bool $allowInsecureHttp = false;
 
     /** @var array<string, int>|null */
     private ?array $rolesMap = null;
 
-    private bool $userConfirmationRequired = false;
-    private int $confirmationTtl = 3600;
+    private UserConfirmationOptions $userConfirmationOptions;
+    private UserResetOptions $userResetOptions;
+    private ThrottlingOptions $throttlingOptions;
 
-    private bool $userResetEnabled = false;
-    private int $userResetTtl = 3600;
-    private bool $userResetAllowedAny = false;
-
-    private ?MailerInterface $mailer = null;
+    private MailerInterface $mailer;
+    private ?LoggerInterface $logger = null;
+    private bool $logDebug = false;
 
     /**
      * Custom E-Mail validator callback
@@ -54,6 +59,14 @@ class AuthConfig
      * @var callable
      */
     public $passwordValidator;
+
+    public function __construct()
+    {
+        $this->userConfirmationOptions = new UserConfirmationOptions();
+        $this->userResetOptions = new UserResetOptions();
+        $this->throttlingOptions = new ThrottlingOptions();
+        $this->mailer = new NativeMailer();
+    }
 
     /**
      * Returns the authentication mode.
@@ -389,34 +402,6 @@ class AuthConfig
     }
 
     /**
-     * Returns the minimum password length.
-     *
-     * Возвращает минимальную длину пароля.
-     */
-    public function getMinPasswordLength(): int
-    {
-        return $this->minPasswordLength;
-    }
-
-    /**
-     * Sets the minimum password length.
-     *
-     * Устанавливает минимальную длину пароля.
-     *
-     * @throws ConfigurationException
-     */
-    public function setMinPasswordLength(int $length): self
-    {
-        if ($length < 1) {
-            throw new ConfigurationException('Minimum password length must be positive');
-        }
-
-        $this->minPasswordLength = $length;
-
-        return $this;
-    }
-
-    /**
      * Returns whether successful logins update users.last_login.
      *
      * Возвращает, обновляют ли успешные входы users.last_login.
@@ -556,140 +541,158 @@ class AuthConfig
     }
 
     /**
-     * Returns whether registration requires email confirmation.
+     * Returns the email confirmation options.
      *
-     * Возвращает, требуется ли подтверждение email при регистрации.
+     * Возвращает параметры подтверждения email.
      */
-    public function getUserConfirmationRequired(): bool
+    public function getUserConfirmationOptions(): UserConfirmationOptions
     {
-        return $this->userConfirmationRequired;
+        return $this->userConfirmationOptions;
     }
 
     /**
-     * Returns the confirmation token lifetime in seconds.
+     * Replaces the email confirmation options. Null keeps the current value.
      *
-     * Возвращает время жизни confirmation-токена в секундах.
+     * Заменяет параметры подтверждения email. Null оставляет текущее значение.
      */
-    public function getUserConfirmationTtl(): int
+    public function setUserConfirmationOptions(?UserConfirmationOptions $options = null): self
     {
-        return $this->confirmationTtl;
-    }
-
-    /**
-     * Sets email confirmation options.
-     * A null argument keeps the current value unchanged.
-     *
-     * Устанавливает параметры подтверждения email.
-     * Аргумент null оставляет текущее значение без изменений.
-     *
-     * @throws ConfigurationException
-     */
-    public function setUserConfirmationOptions(
-        bool|int|float|null $required = null,
-        int|float|null $ttl = null,
-    ): self {
-        if ($required !== null) {
-            $this->userConfirmationRequired = (bool) $required;
-        }
-
-        if ($ttl !== null) {
-            $seconds = (int) \round((float) $ttl);
-
-            if ($seconds <= 0) {
-                throw new ConfigurationException('Confirmation TTL must be positive');
-            }
-
-            $this->confirmationTtl = $seconds;
+        if ($options !== null) {
+            $this->userConfirmationOptions = $options;
         }
 
         return $this;
     }
 
     /**
-     * Returns whether password reset is enabled.
+     * Returns the password reset options.
      *
-     * Возвращает, включён ли сброс пароля.
+     * Возвращает параметры сброса пароля.
      */
-    public function getUserResetEnabled(): bool
+    public function getUserResetOptions(): UserResetOptions
     {
-        return $this->userResetEnabled;
+        return $this->userResetOptions;
     }
 
     /**
-     * Returns the password reset token lifetime in seconds.
+     * Replaces the password reset options. Null keeps the current value.
      *
-     * Возвращает время жизни reset-токена в секундах.
+     * Заменяет параметры сброса пароля. Null оставляет текущее значение.
      */
-    public function getUserResetTtl(): int
+    public function setUserResetOptions(?UserResetOptions $options = null): self
     {
-        return $this->userResetTtl;
-    }
-
-    /**
-     * Returns whether any non-expired reset code is accepted.
-     *
-     * Возвращает, принимается ли любой неистёкший reset-код.
-     */
-    public function getUserResetAllowedAny(): bool
-    {
-        return $this->userResetAllowedAny;
-    }
-
-    /**
-     * Sets password reset options.
-     * A null argument keeps the current value unchanged.
-     *
-     * Устанавливает параметры сброса пароля.
-     * Аргумент null оставляет текущее значение без изменений.
-     *
-     * @throws ConfigurationException
-     */
-    public function setUserResetOptions(
-        bool|int|float|null $enabled = null,
-        int|float|null $ttl = null,
-        bool|int|float|null $allowedAny = null,
-    ): self {
-        if ($enabled !== null) {
-            $this->userResetEnabled = (bool) $enabled;
-        }
-
-        if ($ttl !== null) {
-            $seconds = (int) \round((float) $ttl);
-
-            if ($seconds <= 0) {
-                throw new ConfigurationException('User reset TTL must be positive');
-            }
-
-            $this->userResetTtl = $seconds;
-        }
-
-        if ($allowedAny !== null) {
-            $this->userResetAllowedAny = (bool) $allowedAny;
+        if ($options !== null) {
+            $this->userResetOptions = $options;
         }
 
         return $this;
     }
 
     /**
-     * Returns the configured mailer, or null to use NullMailer.
+     * Returns the throttling options.
      *
-     * Возвращает настроенный мэйлер или null для использования NullMailer.
+     * Возвращает параметры throttling.
      */
-    public function getMailer(): ?MailerInterface
+    public function getThrottlingOptions(): ThrottlingOptions
+    {
+        return $this->throttlingOptions;
+    }
+
+    /**
+     * Replaces the throttling options. Null keeps the current value.
+     *
+     * Заменяет параметры throttling. Null оставляет текущее значение.
+     */
+    public function setThrottlingOptions(?ThrottlingOptions $options = null): self
+    {
+        if ($options !== null) {
+            $this->throttlingOptions = $options;
+        }
+
+        return $this;
+    }
+
+    /**
+     * Returns whether plain HTTP is explicitly allowed.
+     *
+     * Возвращает, разрешён ли явно plain HTTP.
+     */
+    public function getAllowInsecureHttp(): bool
+    {
+        return $this->allowInsecureHttp;
+    }
+
+    /**
+     * Allows plain HTTP. HTTPS is required by default.
+     *
+     * Разрешает plain HTTP. По умолчанию требуется HTTPS.
+     */
+    public function setAllowInsecureHttp(bool $allow = true): self
+    {
+        $this->allowInsecureHttp = $allow;
+
+        return $this;
+    }
+
+    /**
+     * Returns the configured mailer. NativeMailer is used by default.
+     *
+     * Возвращает настроенный мэйлер. По умолчанию используется NativeMailer.
+     */
+    public function getMailer(): MailerInterface
     {
         return $this->mailer;
     }
 
     /**
      * Sets the mailer used for activation and password reset emails.
+     * Null resets it to NativeMailer.
      *
      * Устанавливает мэйлер для писем активации и сброса пароля.
+     * Null возвращает NativeMailer.
      */
     public function setMailer(?MailerInterface $mailer): self
     {
-        $this->mailer = $mailer;
+        $this->mailer = $mailer ?? new NativeMailer();
 
         return $this;
+    }
+
+    /**
+     * Sets the PSR-3 logger and token logging mode.
+     *
+     * Устанавливает PSR-3 логгер и режим логирования токенов.
+     */
+    public function setLogger(LoggerInterface $logger, bool $debug = false): self
+    {
+        $this->logger = $logger;
+        $this->logDebug = $debug;
+
+        return $this;
+    }
+
+    /**
+     * Internal accessor for Auth.
+     *
+     * Внутренний аксессор для Auth.
+     *
+     * @internal
+     */
+    public function logger(): LoggerInterface
+    {
+        return $this->logger ?? new NullLogger();
+    }
+
+    /**
+     * Returns whether raw token values may be logged.
+     *
+     * Возвращает, разрешено ли логирование raw-токенов.
+     *
+     * @internal
+     */
+    public function isLogDebug(): bool
+    {
+        return $this->logDebug;
     }
 
     /**
@@ -716,20 +719,48 @@ class AuthConfig
             'token_ttl' => $this->setTokenTtl($value),
             'require_verified' => $this->setRequireVerified($value),
             'reject_non_normal_status' => $this->setRejectNonNormalStatus($value),
-            'min_password_length' => $this->setMinPasswordLength($value),
             'update_last_login' => $this->setUpdateLastLogin($value),
             'touch_token_interval' => $this->setTouchTokenInterval($value),
             'auto_initialize' => $this->setAutoInitialize($value),
+            'allow_insecure_http' => $this->setAllowInsecureHttp($value),
             'roles_map' => $this->setRolesMap($value),
-            'user_confirmation_required' => $this->setUserConfirmationOptions(required: $value),
-            'user_confirmation_ttl' => $this->setUserConfirmationOptions(ttl: $value),
-            'confirmation_ttl' => $this->setUserConfirmationOptions(ttl: $value),
-            'user_reset_enabled' => $this->setUserResetOptions(enabled: $value),
-            'user_reset_ttl' => $this->setUserResetOptions(ttl: $value),
-            'user_reset_allowed_any' => $this->setUserResetOptions(allowedAny: $value),
+            'user_confirmation_required' => $this->setUserConfirmationOptions(
+                $this->userConfirmationOptions->withRequired((bool) $value)
+            ),
+            'user_confirmation_ttl' => $this->setUserConfirmationOptions(
+                $this->userConfirmationOptions->withTtl($this->ttlValue($value))
+            ),
+            'confirmation_ttl' => $this->setUserConfirmationOptions(
+                $this->userConfirmationOptions->withTtl($this->ttlValue($value))
+            ),
+            'user_reset_enabled' => $this->setUserResetOptions(
+                $this->userResetOptions->withEnabled((bool) $value)
+            ),
+            'user_reset_ttl' => $this->setUserResetOptions(
+                $this->userResetOptions->withTtl($this->ttlValue($value))
+            ),
+            'user_reset_allowed_any' => $this->setUserResetOptions(
+                $this->userResetOptions->withAllowedAny((bool) $value)
+            ),
+            'throttling_options' => $this->setThrottlingOptions($value),
             'mailer' => $this->setMailer($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };
+    }
+
+    private function ttlValue(mixed $value): int
+    {
+        if (!\is_int($value) && !\is_float($value)) {
+            throw new ConfigurationException('TTL must be an integer or float');
+        }
+
+        $seconds = (int) \round((float) $value);
+
+        if ($seconds <= 0) {
+            throw new ConfigurationException('TTL must be positive');
+        }
+
+        return $seconds;
     }
 
     public function setEMailValidator(?callable $handler = null): self

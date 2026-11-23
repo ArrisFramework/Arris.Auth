@@ -7,6 +7,7 @@ namespace Arris\Auth;
 use Arris\Auth\DTO\ConfirmationState;
 use Arris\Auth\DTO\ResetState;
 use Arris\Auth\DTO\Status;
+use Arris\Auth\DTO\ThrottleRule;
 use Arris\Auth\DTO\User;
 use Arris\Auth\Exception\AccountDisabledException;
 use Arris\Auth\Exception\AmbiguousUsernameException;
@@ -19,11 +20,12 @@ use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
 use Arris\Auth\Exception\InvalidResetException;
 use Arris\Auth\Exception\NotLoggedInException;
+use Arris\Auth\Exception\TooManyRequestsException;
 use Arris\Auth\Exception\UnknownUserException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
-use Arris\Auth\Mailer\NullMailer;
 use Arris\Auth\Repository\ConfirmationRepository;
 use Arris\Auth\Repository\ResetRepository;
+use Arris\Auth\Repository\ThrottleRepository;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Repository\UserRepository;
 use PDO;
@@ -45,6 +47,7 @@ class Auth
     private TokenRepository $tokens;
     private ConfirmationRepository $confirmations;
     private ResetRepository $resets;
+    private ThrottleRepository $throttles;
 
     private AuthConfig $config;
 
@@ -70,6 +73,10 @@ class Auth
         ?AuthConfig $config = null,
     ) {
         $this->config = $config !== null ? clone $config : new AuthConfig();
+
+        if (!$this->config->getAllowInsecureHttp() && !$this->isHttps()) {
+            throw new ConfigurationException('HTTPS is required');
+        }
 
         $this->sessionCookie = \array_replace([
             'path' => '/',
@@ -107,6 +114,12 @@ class Auth
         );
 
         $this->resets = new ResetRepository(
+            $this->pdo,
+            $this->config->getDbSchema(),
+            $this->config->getTablePrefix()
+        );
+
+        $this->throttles = new ThrottleRepository(
             $this->pdo,
             $this->config->getDbSchema(),
             $this->config->getTablePrefix()
@@ -209,6 +222,12 @@ class Auth
         ?bool $verified = null,
         int $rolesMask = 0,
     ): User {
+        $this->assertAllowed(
+            'register',
+            $this->config->getThrottlingOptions()->registration,
+            [$this->clientIp()]
+        );
+
         $email = $this->validateEmail($email);
         $this->validateNewPassword($password);
 
@@ -226,7 +245,7 @@ class Auth
             throw new AuthException('Unable to hash the password');
         }
 
-        $confirmationRequired = $this->config->getUserConfirmationRequired();
+        $confirmationRequired = $this->config->getUserConfirmationOptions()->required;
         $isVerified = $verified ?? !$confirmationRequired;
 
         if ($confirmationRequired && $verified !== true) {
@@ -277,6 +296,19 @@ class Auth
             }
         }
 
+        $context = [
+            'user_id' => $userId,
+            'email' => $email,
+            'verified' => $isVerified,
+            'confirmation_required' => $needsConfirmation,
+        ];
+
+        if ($activationKey !== null) {
+            $context += $this->tokenContext($activationKey);
+        }
+
+        $this->log('info', 'User registered', $context);
+
         $row = $this->users->findById($userId);
         if ($row === null) {
             throw new AuthException('Unable to load the created user');
@@ -304,6 +336,7 @@ class Auth
         });
 
         $this->invalidateCachedUser($userId);
+        $this->log('info', 'User manually verified', ['user_id' => $userId]);
     }
 
     /**
@@ -319,12 +352,16 @@ class Auth
         $activationKey = \trim($activationKey);
 
         if ($activationKey === '') {
+            $this->log('warning', 'Confirmation failed: empty token');
+
             throw new InvalidConfirmationException('Invalid confirmation token');
         }
 
         $confirmation = $this->confirmations->findActiveByTokenHash(self::hashToken($activationKey));
 
         if ($confirmation === null) {
+            $this->log('warning', 'Confirmation failed: invalid or expired token');
+
             throw new InvalidConfirmationException('Invalid or expired confirmation token');
         }
 
@@ -350,6 +387,8 @@ class Auth
             throw new UnknownUserException('Unknown user');
         }
 
+        $this->log('info', 'User email confirmed', ['user_id' => $userId]);
+
         return User::fromRow($freshRow);
     }
 
@@ -360,11 +399,21 @@ class Auth
      */
     public function resendConfirmation(string $email): ConfirmationState
     {
-        if (!$this->config->getUserConfirmationRequired()) {
+        if (!$this->config->getUserConfirmationOptions()->required) {
             return ConfirmationState::notRequired();
         }
 
         $email = \trim($email);
+
+        try {
+            $this->assertAllowed(
+                'confirmation',
+                $this->config->getThrottlingOptions()->confirmation,
+                [\strtolower($email), $this->clientIp()]
+            );
+        } catch (TooManyRequestsException $e) {
+            return ConfirmationState::throttled($e->retryAfter);
+        }
         $userRow = $this->users->findByEmail($email);
 
         if ($userRow === null) {
@@ -407,25 +456,39 @@ class Auth
      */
     public function requestPasswordReset(string $email): ResetState
     {
-        if (!$this->config->getUserResetEnabled()) {
+        if (!$this->config->getUserResetOptions()->enabled) {
             return ResetState::notEnabled();
         }
 
         $email = \trim($email);
+
+        try {
+            $this->assertAllowed(
+                'reset',
+                $this->config->getThrottlingOptions()->reset,
+                [\strtolower($email), $this->clientIp()]
+            );
+        } catch (TooManyRequestsException $e) {
+            return ResetState::throttled($e->retryAfter);
+        }
         $userRow = $this->users->findByEmail($email);
 
         if ($userRow === null) {
+            $this->log('warning', 'Password reset requested for unknown email', ['email' => $email]);
+
             return ResetState::unknownUser();
         }
 
         if ((int) ($userRow['resettable'] ?? 1) !== 1) {
+            $this->log('warning', 'Password reset not allowed', ['user_id' => (int) $userRow['id']]);
+
             return ResetState::notAllowed();
         }
 
         $resetKey = $this->transactional(function () use ($userRow): string {
             $userId = (int) $userRow['id'];
 
-            if ($this->config->getUserResetAllowedAny()) {
+            if ($this->config->getUserResetOptions()->allowedAny) {
                 $this->resets->deleteExpiredByUser($userId);
             } else {
                 $this->resets->deleteByUser($userId);
@@ -438,6 +501,10 @@ class Auth
             $sent = $this->sendPasswordReset((string) $userRow['email'], $resetKey);
         } catch (\Throwable) {
             $sent = false;
+        }
+
+        if ($sent) {
+            $this->log('info', 'Password reset email sent', ['user_id' => (int) $userRow['id']]);
         }
 
         return $sent ? ResetState::sent() : ResetState::mailFailed();
@@ -455,19 +522,23 @@ class Auth
      */
     public function resetPassword(string $resetKey, string $newPassword): User
     {
-        if (!$this->config->getUserResetEnabled()) {
+        if (!$this->config->getUserResetOptions()->enabled) {
             throw new ConfigurationException('Password reset is disabled');
         }
 
         $resetKey = \trim($resetKey);
 
         if ($resetKey === '') {
+            $this->log('warning', 'Password reset failed: empty token');
+
             throw new InvalidResetException('Invalid reset token');
         }
 
         $reset = $this->resets->findActiveByTokenHash(self::hashToken($resetKey));
 
         if ($reset === null) {
+            $this->log('warning', 'Password reset failed: invalid or expired token');
+
             throw new InvalidResetException('Invalid or expired reset token');
         }
 
@@ -519,6 +590,8 @@ class Auth
             throw new UnknownUserException('Unknown user');
         }
 
+        $this->log('info', 'Password reset completed', ['user_id' => $userId]);
+
         return User::fromRow($freshRow);
     }
 
@@ -551,10 +624,17 @@ class Auth
      */
     public function login(string $email, string $password, bool $remember = false): User
     {
+        $this->assertAllowed(
+            'login',
+            $this->config->getThrottlingOptions()->login,
+            [\strtolower(\trim($email)), $this->clientIp()]
+        );
+
         $row = $this->users->findByEmail($this->validateEmail($email));
 
         if ($row === null) {
             $this->dummyPasswordVerify($password);
+            $this->log('warning', 'Login failed: unknown email', ['email' => $email]);
 
             throw new InvalidCredentialsException('Invalid email address or password');
         }
@@ -581,16 +661,24 @@ class Auth
      */
     public function loginWithUsername(string $username, string $password, bool $remember = false): User
     {
+        $this->assertAllowed(
+            'login',
+            $this->config->getThrottlingOptions()->login,
+            [\strtolower(\trim($username)), $this->clientIp()]
+        );
+
         $rows = $this->users->findByUsername(\trim($username));
 
         if ($rows === []) {
             $this->dummyPasswordVerify($password);
+            $this->log('warning', 'Login failed: unknown username', ['username' => $username]);
 
             throw new InvalidCredentialsException('Invalid username or password');
         }
 
         if (\count($rows) > 1) {
             $this->dummyPasswordVerify($password);
+            $this->log('warning', 'Login failed: ambiguous username', ['username' => $username]);
 
             throw new AmbiguousUsernameException('This username is ambiguous');
         }
@@ -1083,6 +1171,14 @@ class Auth
             (int) ($userRow['force_logout'] ?? 0)
         );
 
+        $context = [
+            'user_id' => $userId,
+            'ttl' => $ttl,
+            'name' => $name,
+        ] + $this->tokenContext($token);
+
+        $this->log('info', 'Bearer token issued', $context);
+
         return $token;
     }
 
@@ -1164,6 +1260,8 @@ class Auth
         $this->resolved = true;
         $this->cachedUser = null;
         $this->currentBearerToken = null;
+
+        $this->log('info', 'User logged out');
     }
 
     /**
@@ -1364,6 +1462,8 @@ class Auth
             $this->resolved = false;
             $this->cachedUser = null;
         }
+
+        $this->log('info', 'User password changed', ['user_id' => $userId]);
     }
 
     /**
@@ -1384,6 +1484,8 @@ class Auth
         }
 
         if (!\password_verify($password, (string) $row['password'])) {
+            $this->log('warning', 'Login failed: invalid password', ['user_id' => (int) $row['id']]);
+
             throw new InvalidCredentialsException('Invalid credentials');
         }
 
@@ -1397,10 +1499,14 @@ class Auth
         }
 
         if ($this->isUnverified($row)) {
+            $this->log('warning', 'Login failed: email not verified', ['user_id' => (int) $row['id']]);
+
             throw new EmailNotVerifiedException('The email address has not been verified yet');
         }
 
         if ($this->isDisabled($row)) {
+            $this->log('warning', 'Login failed: account disabled', ['user_id' => (int) $row['id']]);
+
             throw new AccountDisabledException('This account is disabled');
         }
 
@@ -1420,6 +1526,11 @@ class Auth
 
         $this->resolved = true;
         $this->currentBearerToken = null;
+
+        $this->log('info', 'User logged in', [
+            'user_id' => (int) $row['id'],
+            'remembered' => $remember,
+        ]);
 
         return $this->cachedUser = User::fromRow($row);
     }
@@ -1664,7 +1775,7 @@ class Auth
 
         $token = self::randomToken(32);
         $selector = \bin2hex(\random_bytes(8));
-        $expires = \time() + $this->config->getUserConfirmationTtl();
+        $expires = \time() + $this->config->getUserConfirmationOptions()->ttl;
 
         $this->confirmations->create(
             $userId,
@@ -1673,6 +1784,12 @@ class Auth
             self::hashToken($token),
             $expires
         );
+
+        $this->log('info', 'Confirmation token created', [
+            'user_id' => $userId,
+            'email' => $email,
+            'expires' => $expires,
+        ] + $this->tokenContext($token));
 
         return $token;
     }
@@ -1684,9 +1801,14 @@ class Auth
      */
     private function sendActivation(string $email, string $activationKey): bool
     {
-        $mailer = $this->config->getMailer() ?? new NullMailer();
+        $mailer = $this->config->getMailer();
+        $sent = $mailer->sendActivation($email, $activationKey);
 
-        return $mailer->sendActivation($email, $activationKey);
+        if (!$sent) {
+            $this->log('warning', 'Activation email was not sent', ['email' => $email]);
+        }
+
+        return $sent;
     }
 
     /**
@@ -1700,7 +1822,7 @@ class Auth
     {
         $token = self::randomToken(32);
         $selector = \bin2hex(\random_bytes(8));
-        $expires = \time() + $this->config->getUserResetTtl();
+        $expires = \time() + $this->config->getUserResetOptions()->ttl;
 
         $this->resets->create(
             $userId,
@@ -1708,6 +1830,11 @@ class Auth
             self::hashToken($token),
             $expires
         );
+
+        $this->log('info', 'Password reset token created', [
+            'user_id' => $userId,
+            'expires' => $expires,
+        ] + $this->tokenContext($token));
 
         return $token;
     }
@@ -1719,9 +1846,14 @@ class Auth
      */
     private function sendPasswordReset(string $email, string $resetKey): bool
     {
-        $mailer = $this->config->getMailer() ?? new NullMailer();
+        $mailer = $this->config->getMailer();
+        $sent = $mailer->sendPasswordReset($email, $resetKey);
 
-        return $mailer->sendPasswordReset($email, $resetKey);
+        if (!$sent) {
+            $this->log('warning', 'Password reset email was not sent', ['email' => $email]);
+        }
+
+        return $sent;
     }
 
     /**
@@ -1964,6 +2096,54 @@ class Auth
      *
      * @param array<string, mixed> $row
      */
+    /**
+     * @param list<string> $identities
+     * @throws TooManyRequestsException
+     */
+    private function assertAllowed(string $scope, ThrottleRule $rule, array $identities): void
+    {
+        if (!$this->config->getThrottlingOptions()->enabled) {
+            return;
+        }
+
+        foreach ($identities as $identity) {
+            $bucket = \sha1($scope . ':' . $identity);
+            $result = $this->throttles->consume($bucket, $rule->limit, $rule->window);
+
+            if (!$result['allowed']) {
+                $this->config->logger()->warning('Auth throttling limit exceeded', [
+                    'scope' => $scope,
+                    'retry_after' => $result['retry_after'],
+                ]);
+
+                throw new TooManyRequestsException($result['retry_after']);
+            }
+        }
+    }
+
+    private function log(string $level, string $message, array $context = []): void
+    {
+        $this->config->logger()->log($level, $message, $context);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function tokenContext(string $token): array
+    {
+        return $this->config->isLogDebug() ? ['token' => $token] : [];
+    }
+
+    /**
+     * Returns the client IP used for throttling buckets.
+     *
+     * Возвращает IP клиента для throttling-bucket.
+     */
+    private function clientIp(): string
+    {
+        return (string) ($_SERVER['REMOTE_ADDR'] ?? 'cli');
+    }
+
     private function isDisabled(array $row): bool
     {
         return $this->config->getRejectNonNormalStatus()
@@ -1980,7 +2160,7 @@ class Auth
     private function isUnverified(array $row): bool
     {
         $required = $this->config->getRequireVerified()
-            || $this->config->getUserConfirmationRequired();
+            || $this->config->getUserConfirmationOptions()->required;
 
         return $required && (int) ($row['verified'] ?? 0) !== 1;
     }
@@ -1996,7 +2176,13 @@ class Auth
     {
         $email = \trim($email);
 
-        if ($email === '' || \filter_var($email, \FILTER_VALIDATE_EMAIL) === false) {
+        if ($email === '') {
+            throw new InvalidEmailException('Email address cannot be empty');
+        }
+
+        $validator = $this->config->emailValidator;
+
+        if (\is_callable($validator) && !$validator($email)) {
             throw new InvalidEmailException('Invalid email address');
         }
 
@@ -2016,19 +2202,24 @@ class Auth
     }
 
     /**
-     * Validates a new password against the configured minimum length.
+     * Validates a new password using the configured validator, if any.
+     * The package itself only rejects empty passwords.
      *
-     *
-     * Проверяет новый пароль на соответствие настроенной минимальной длине.
+     * Проверяет новый пароль настроенным валидатором, если он задан.
+     * Сам пакет отклоняет только пустой пароль.
      *
      * @throws InvalidPasswordException
      */
     private function validateNewPassword(string $password): void
     {
-        if (\strlen($password) < $this->config->getMinPasswordLength()) {
-            throw new InvalidPasswordException(
-                'Password must be at least ' . $this->config->getMinPasswordLength() . ' characters long'
-            );
+        if ($password === '') {
+            throw new InvalidPasswordException('Password cannot be empty');
+        }
+
+        $validator = $this->config->passwordValidator;
+
+        if (\is_callable($validator) && !$validator($password)) {
+            throw new InvalidPasswordException('Invalid password');
         }
     }
 

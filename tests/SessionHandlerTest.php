@@ -110,6 +110,7 @@ final class SessionHandlerTest extends TestCase
         $_COOKIE['arris_auth'] = 'custom-session-id';
 
         $config = (new AuthConfig())
+            ->setAllowInsecureHttp(true)
             ->setSessionName('arris_auth')
             ->setSessionHandler($handler);
 

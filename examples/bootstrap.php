@@ -28,6 +28,7 @@ if ($schema === false) {
 $pdo->exec($schema);
 
 $config = (new AuthConfig())
+    ->setAllowInsecureHttp(true)
     ->setSessionName('arris_demo_session')
     ->setSessionCookie([
         'path' => '/',
@@ -41,7 +42,12 @@ $config = (new AuthConfig())
     ->setTokenTtl(60 * 60 * 24 * 7)
     ->setRequireVerified(true)
     ->setRejectNonNormalStatus(true)
-    ->setMinPasswordLength(8);
+    ->setEMailValidator(
+        static fn (string $email): bool => \filter_var($email, \FILTER_VALIDATE_EMAIL) !== false
+    )
+    ->setPasswordValidator(
+        static fn (string $password): bool => \strlen($password) >= 8
+    );
 
 $auth = new Auth($pdo, $config);
 

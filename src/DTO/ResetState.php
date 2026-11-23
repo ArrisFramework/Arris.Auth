@@ -11,10 +11,12 @@ final readonly class ResetState
     public const NOT_ENABLED = 'not_enabled';
     public const NOT_ALLOWED = 'not_allowed';
     public const MAIL_FAILED = 'mail_failed';
+    public const THROTTLED = 'throttled';
 
     private function __construct(
         public bool $sent,
         public string $reason,
+        public int $retryAfter = 0,
     ) {
     }
 
@@ -41,6 +43,11 @@ final readonly class ResetState
     public static function mailFailed(): self
     {
         return new self(false, self::MAIL_FAILED);
+    }
+
+    public static function throttled(int $retryAfter): self
+    {
+        return new self(false, self::THROTTLED, $retryAfter);
     }
 
     public function isSent(): bool

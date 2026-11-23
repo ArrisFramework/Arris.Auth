@@ -121,6 +121,7 @@ if ($schema === false) {
 $pdo->exec($schema);
 
 $config = (new AuthConfig())
+    ->setAllowInsecureHttp(true)
     ->setSessionName('arris_extend_demo')
     ->setSessionCookie([
         'path' => '/',

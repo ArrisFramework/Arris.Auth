@@ -484,7 +484,7 @@ if ($path === '/register') {
                 demo_redirect('/');
             } catch (InvalidPasswordException $exception) {
                 http_response_code(422);
-                $error = 'Пароль слишком короткий: минимум ' . $config->getMinPasswordLength() . ' символов.';
+                $error = 'Пароль слишком короткий: минимум 8 символов.';
             } catch (UserAlreadyExistsException $exception) {
                 http_response_code(422);
                 $error = 'Пользователь с таким email уже существует.';
@@ -518,11 +518,11 @@ if ($path === '/register') {
         </label>
         <label>
             Пароль
-            <input type="password" name="password" autocomplete="new-password" minlength="<?= demo_e($config->getMinPasswordLength()) ?>" required>
+            <input type="password" name="password" autocomplete="new-password" minlength="8" required>
         </label>
         <label>
             Пароль ещё раз
-            <input type="password" name="password_confirmation" autocomplete="new-password" minlength="<?= demo_e($config->getMinPasswordLength()) ?>" required>
+            <input type="password" name="password_confirmation" autocomplete="new-password" minlength="8" required>
         </label>
         <button type="submit">Зарегистрироваться</button>
     </form>

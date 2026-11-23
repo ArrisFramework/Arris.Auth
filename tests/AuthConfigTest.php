@@ -6,6 +6,10 @@ namespace Tests;
 
 use Arris\Auth\Auth;
 use Arris\Auth\AuthConfig;
+use Arris\Auth\DTO\ThrottleRule;
+use Arris\Auth\DTO\ThrottlingOptions;
+use Arris\Auth\DTO\UserConfirmationOptions;
+use Arris\Auth\DTO\UserResetOptions;
 use Arris\Auth\Exception\ConfigurationException;
 use Arris\Auth\Mailer\NullMailer;
 use Arris\Auth\Role;
@@ -15,6 +19,13 @@ use SessionHandlerInterface;
 
 final class AuthConfigTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $_SERVER['HTTPS'] = 'on';
+    }
+
     public function testDefaults(): void
     {
         $config = new AuthConfig();
@@ -30,17 +41,20 @@ final class AuthConfigTest extends TestCase
         self::assertSame(60 * 60 * 24 * 30, $config->getTokenTtl());
         self::assertTrue($config->getRequireVerified());
         self::assertTrue($config->getRejectNonNormalStatus());
-        self::assertSame(8, $config->getMinPasswordLength());
         self::assertTrue($config->getUpdateLastLogin());
         self::assertSame(60, $config->getTouchTokenInterval());
         self::assertTrue($config->getAutoInitialize());
         self::assertNull($config->getRolesMap());
-        self::assertFalse($config->getUserConfirmationRequired());
-        self::assertSame(3600, $config->getUserConfirmationTtl());
-        self::assertFalse($config->getUserResetEnabled());
-        self::assertSame(3600, $config->getUserResetTtl());
-        self::assertFalse($config->getUserResetAllowedAny());
-        self::assertNull($config->getMailer());
+        self::assertFalse($config->getUserConfirmationOptions()->required);
+        self::assertSame(3600, $config->getUserConfirmationOptions()->ttl);
+        self::assertFalse($config->getUserResetOptions()->enabled);
+        self::assertSame(3600, $config->getUserResetOptions()->ttl);
+        self::assertFalse($config->getUserResetOptions()->allowedAny);
+        self::assertInstanceOf(\Arris\Auth\Mailer\NativeMailer::class, $config->getMailer());
+        self::assertFalse($config->getAllowInsecureHttp());
+        self::assertTrue($config->getThrottlingOptions()->enabled);
+        self::assertSame(5, $config->getThrottlingOptions()->login->limit);
+        self::assertSame(900, $config->getThrottlingOptions()->login->window);
     }
 
     public function testRolesMapDefaultsToNullAndCanBeReset(): void
@@ -97,12 +111,11 @@ final class AuthConfigTest extends TestCase
             ->setTokenTtl(0)
             ->setRequireVerified(false)
             ->setRejectNonNormalStatus(false)
-            ->setMinPasswordLength(12)
             ->setUpdateLastLogin(false)
             ->setTouchTokenInterval(0)
             ->setAutoInitialize(false)
-            ->setUserConfirmationOptions(required: true, ttl: 120)
-            ->setUserResetOptions(enabled: true, ttl: 300, allowedAny: true)
+            ->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 120))
+            ->setUserResetOptions(new UserResetOptions(enabled: true, ttl: 300, allowedAny: true))
             ->setMailer($mailer);
 
         self::assertSame(Auth::MODE_TOKEN, $config->getMode());
@@ -116,61 +129,88 @@ final class AuthConfigTest extends TestCase
         self::assertSame(0, $config->getTokenTtl());
         self::assertFalse($config->getRequireVerified());
         self::assertFalse($config->getRejectNonNormalStatus());
-        self::assertSame(12, $config->getMinPasswordLength());
         self::assertFalse($config->getUpdateLastLogin());
         self::assertSame(0, $config->getTouchTokenInterval());
         self::assertFalse($config->getAutoInitialize());
-        self::assertTrue($config->getUserConfirmationRequired());
-        self::assertSame(120, $config->getUserConfirmationTtl());
-        self::assertTrue($config->getUserResetEnabled());
-        self::assertSame(300, $config->getUserResetTtl());
-        self::assertTrue($config->getUserResetAllowedAny());
+        self::assertTrue($config->getUserConfirmationOptions()->required);
+        self::assertSame(120, $config->getUserConfirmationOptions()->ttl);
+        self::assertTrue($config->getUserResetOptions()->enabled);
+        self::assertSame(300, $config->getUserResetOptions()->ttl);
+        self::assertTrue($config->getUserResetOptions()->allowedAny);
         self::assertSame($mailer, $config->getMailer());
     }
 
     public function testUserConfirmationOptionsKeepNullsAndAcceptScalars(): void
     {
-        $config = (new AuthConfig())->setUserConfirmationOptions(required: true, ttl: 120);
+        $config = (new AuthConfig())->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 120));
 
-        $config->setUserConfirmationOptions(required: null);
-        self::assertTrue($config->getUserConfirmationRequired());
-        self::assertSame(120, $config->getUserConfirmationTtl());
+        $config->setUserConfirmationOptions();
+        self::assertTrue($config->getUserConfirmationOptions()->required);
+        self::assertSame(120, $config->getUserConfirmationOptions()->ttl);
 
-        $config->setUserConfirmationOptions(ttl: null);
-        self::assertSame(120, $config->getUserConfirmationTtl());
+        $config->setUserConfirmationOptions();
+        self::assertSame(120, $config->getUserConfirmationOptions()->ttl);
 
-        $config->setUserConfirmationOptions(required: 0);
-        self::assertFalse($config->getUserConfirmationRequired());
+        $config->setUserConfirmationOptions(new UserConfirmationOptions(required: false));
+        self::assertFalse($config->getUserConfirmationOptions()->required);
 
-        $config->setUserConfirmationOptions(required: 1);
-        self::assertTrue($config->getUserConfirmationRequired());
+        $config->setUserConfirmationOptions(new UserConfirmationOptions(required: true));
+        self::assertTrue($config->getUserConfirmationOptions()->required);
 
-        $config->setUserConfirmationOptions(ttl: 60.6);
-        self::assertSame(61, $config->getUserConfirmationTtl());
+        $config->setUserConfirmationOptions(new UserConfirmationOptions(ttl: 61));
+        self::assertSame(61, $config->getUserConfirmationOptions()->ttl);
     }
 
     public function testUserResetOptionsKeepNullsAndAcceptScalars(): void
     {
-        $config = (new AuthConfig())->setUserResetOptions(enabled: true, ttl: 120, allowedAny: true);
+        $config = (new AuthConfig())->setUserResetOptions(new UserResetOptions(enabled: true, ttl: 120, allowedAny: true));
 
-        $config->setUserResetOptions(enabled: null);
-        self::assertTrue($config->getUserResetEnabled());
-        self::assertSame(120, $config->getUserResetTtl());
-        self::assertTrue($config->getUserResetAllowedAny());
+        $config->setUserResetOptions();
+        self::assertTrue($config->getUserResetOptions()->enabled);
+        self::assertSame(120, $config->getUserResetOptions()->ttl);
+        self::assertTrue($config->getUserResetOptions()->allowedAny);
 
-        $config->setUserResetOptions(ttl: null);
-        self::assertSame(120, $config->getUserResetTtl());
+        $config->setUserResetOptions();
+        self::assertSame(120, $config->getUserResetOptions()->ttl);
 
-        $config->setUserResetOptions(enabled: 0, allowedAny: 0);
-        self::assertFalse($config->getUserResetEnabled());
-        self::assertFalse($config->getUserResetAllowedAny());
+        $config->setUserResetOptions(new UserResetOptions(enabled: false, allowedAny: false));
+        self::assertFalse($config->getUserResetOptions()->enabled);
+        self::assertFalse($config->getUserResetOptions()->allowedAny);
 
-        $config->setUserResetOptions(enabled: 1, allowedAny: 1);
-        self::assertTrue($config->getUserResetEnabled());
-        self::assertTrue($config->getUserResetAllowedAny());
+        $config->setUserResetOptions(new UserResetOptions(enabled: true, allowedAny: true));
+        self::assertTrue($config->getUserResetOptions()->enabled);
+        self::assertTrue($config->getUserResetOptions()->allowedAny);
 
-        $config->setUserResetOptions(ttl: 60.6);
-        self::assertSame(61, $config->getUserResetTtl());
+        $config->setUserResetOptions(new UserResetOptions(ttl: 61));
+        self::assertSame(61, $config->getUserResetOptions()->ttl);
+    }
+
+    public function testOptionsDtoWithMethods(): void
+    {
+        $confirmation = (new UserConfirmationOptions())
+            ->withRequired(true)
+            ->withTtl(120);
+
+        self::assertTrue($confirmation->required);
+        self::assertSame(120, $confirmation->ttl);
+
+        $reset = (new UserResetOptions())
+            ->withEnabled(true)
+            ->withTtl(300)
+            ->withAllowedAny(true);
+
+        self::assertTrue($reset->enabled);
+        self::assertSame(300, $reset->ttl);
+        self::assertTrue($reset->allowedAny);
+
+        $throttling = (new ThrottlingOptions())
+            ->withEnabled(false)
+            ->withLogin(new ThrottleRule(2, 60));
+
+        self::assertFalse($throttling->enabled);
+        self::assertSame(2, $throttling->login->limit);
+        self::assertSame(60, $throttling->login->window);
+        self::assertSame(3, $throttling->registration->limit);
     }
 
     public function testSetOptionDispatchesToTypedSetters(): void
@@ -182,7 +222,6 @@ final class AuthConfigTest extends TestCase
             ->setOption('mode', Auth::MODE_SESSION)
             ->setOption('session_name', 'app_session')
             ->setOption('token_ttl', 0)
-            ->setOption('min_password_length', 10)
             ->setOption('auto_initialize', false)
             ->setOption('roles_map', $rolesMap)
             ->setOption('user_confirmation_required', true)
@@ -190,19 +229,22 @@ final class AuthConfigTest extends TestCase
             ->setOption('user_reset_enabled', true)
             ->setOption('user_reset_ttl', 300)
             ->setOption('user_reset_allowed_any', true)
+            ->setOption('allow_insecure_http', true)
+            ->setOption('throttling_options', new ThrottlingOptions(enabled: false))
             ->setOption('mailer', $mailer);
 
         self::assertSame(Auth::MODE_SESSION, $config->getMode());
         self::assertSame('app_session', $config->getSessionName());
         self::assertSame(0, $config->getTokenTtl());
-        self::assertSame(10, $config->getMinPasswordLength());
         self::assertFalse($config->getAutoInitialize());
         self::assertSame($rolesMap, $config->getRolesMap());
-        self::assertTrue($config->getUserConfirmationRequired());
-        self::assertSame(120, $config->getUserConfirmationTtl());
-        self::assertTrue($config->getUserResetEnabled());
-        self::assertSame(300, $config->getUserResetTtl());
-        self::assertTrue($config->getUserResetAllowedAny());
+        self::assertTrue($config->getUserConfirmationOptions()->required);
+        self::assertSame(120, $config->getUserConfirmationOptions()->ttl);
+        self::assertTrue($config->getUserResetOptions()->enabled);
+        self::assertSame(300, $config->getUserResetOptions()->ttl);
+        self::assertTrue($config->getUserResetOptions()->allowedAny);
+        self::assertTrue($config->getAllowInsecureHttp());
+        self::assertFalse($config->getThrottlingOptions()->enabled);
         self::assertSame($mailer, $config->getMailer());
     }
 
@@ -271,7 +313,7 @@ final class AuthConfigTest extends TestCase
             $_SERVER['HTTP_X_FORWARDED_SSL'],
         );
 
-        $config = (new AuthConfig())->setSessionCookie(['samesite' => 'None']);
+        $config = (new AuthConfig())->setAllowInsecureHttp(true)->setSessionCookie(['samesite' => 'None']);
 
         $this->expectException(ConfigurationException::class);
 
@@ -289,14 +331,14 @@ final class AuthConfigTest extends TestCase
     {
         $this->expectException(ConfigurationException::class);
 
-        (new AuthConfig())->setUserConfirmationOptions(ttl: 0);
+        (new AuthConfig())->setUserConfirmationOptions(new UserConfirmationOptions(ttl: 0));
     }
 
     public function testNonPositiveUserResetTtlIsRejected(): void
     {
         $this->expectException(ConfigurationException::class);
 
-        (new AuthConfig())->setUserResetOptions(ttl: 0);
+        (new AuthConfig())->setUserResetOptions(new UserResetOptions(ttl: 0));
     }
 
     public function testAuthUsesDefaultConfigWhenNullIsPassed(): void
