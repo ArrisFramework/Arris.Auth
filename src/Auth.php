@@ -75,6 +75,10 @@ class Auth
             $this->sessionCookie['samesite'] = null;
         }
 
+        if ($this->sessionCookie['samesite'] === 'None' && !$this->sessionCookie['secure']) {
+            throw new ConfigurationException('SameSite=None requires secure=true');
+        }
+
         $this->users = new UserRepository(
             $this->pdo,
             $this->config->getDbSchema(),

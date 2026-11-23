@@ -109,6 +109,52 @@ final class AuthConfigTest extends TestCase
         (new AuthConfig())->setSessionName('');
     }
 
+    public function testUnknownSessionCookieOptionIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setSessionCookie(['unknown' => true]);
+    }
+
+    public function testInvalidSessionCookieOptionTypeIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setSessionCookie(['secure' => 'yes']);
+    }
+
+    public function testInvalidSessionCookieSameSiteIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setSessionCookie(['samesite' => 'bogus']);
+    }
+
+    public function testNegativeSessionCookieLifetimeIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setSessionCookie(['lifetime' => -1]);
+    }
+
+    public function testSameSiteNoneRequiresSecureAtConfigTime(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setSessionCookie(['secure' => false, 'samesite' => 'None']);
+    }
+
+    public function testSameSiteNoneRequiresSecureAfterAutoDetection(): void
+    {
+        unset($_SERVER['HTTPS'], $_SERVER['SERVER_PORT'], $_SERVER['HTTP_X_FORWARDED_PROTO']);
+
+        $config = (new AuthConfig())->setSessionCookie(['samesite' => 'None']);
+
+        $this->expectException(ConfigurationException::class);
+
+        new Auth(new PDO('sqlite::memory:'), $config);
+    }
+
     public function testNegativeTtlIsRejected(): void
     {
         $this->expectException(ConfigurationException::class);

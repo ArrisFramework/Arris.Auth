@@ -165,12 +165,64 @@ class AuthConfig
      * Устанавливает параметры cookie сессии.
      *
      * @param array<string, mixed> $options
+     * @throws ConfigurationException
      */
     public function setSessionCookie(array $options): self
     {
+        $this->assertValidSessionCookieOptions($options);
         $this->sessionCookie = $options;
 
         return $this;
+    }
+
+    /**
+     * Validates the supported session cookie option keys and value types.
+     *
+     * Проверяет поддерживаемые ключи и типы значений параметров cookie сессии.
+     *
+     * @param array<string, mixed> $options
+     * @throws ConfigurationException
+     */
+    private function assertValidSessionCookieOptions(array $options): void
+    {
+        $allowed = ['path', 'domain', 'secure', 'httponly', 'samesite', 'lifetime'];
+        $unknown = \array_diff(\array_keys($options), $allowed);
+
+        if ($unknown !== []) {
+            throw new ConfigurationException(
+                'Unknown session cookie option(s): ' . \implode(', ', $unknown)
+            );
+        }
+
+        foreach (['path', 'domain'] as $key) {
+            if (\array_key_exists($key, $options) && !\is_string($options[$key])) {
+                throw new ConfigurationException("Session cookie option {$key} must be a string");
+            }
+        }
+
+        foreach (['secure', 'httponly'] as $key) {
+            if (\array_key_exists($key, $options) && !\is_bool($options[$key])) {
+                throw new ConfigurationException("Session cookie option {$key} must be bool");
+            }
+        }
+
+        if (\array_key_exists('lifetime', $options)
+            && (!\is_int($options['lifetime']) || $options['lifetime'] < 0)
+        ) {
+            throw new ConfigurationException('Session cookie lifetime must be a non-negative integer');
+        }
+
+        if (\array_key_exists('samesite', $options)) {
+            $sameSite = $options['samesite'];
+
+            if ($sameSite !== null && !\in_array($sameSite, ['', 'Lax', 'Strict', 'None'], true)) {
+                throw new ConfigurationException('Cookie SameSite must be Lax, Strict, None or null');
+            }
+
+            if ($sameSite === 'None' && \array_key_exists('secure', $options) && $options['secure'] === false) {
+                throw new ConfigurationException('SameSite=None requires secure=true');
+            }
+        }
     }
 
     /**
@@ -460,7 +512,7 @@ class AuthConfig
         };
     }
 
-    public function setEMailValidator(callable $handler = null):self
+    public function setEMailValidator(?callable $handler = null): self
     {
         if (is_callable($handler)) {
             $this->emailValidator = $handler;
@@ -469,7 +521,7 @@ class AuthConfig
         return $this;
     }
 
-    public function setPasswordValidator(callable $handler = null):self
+    public function setPasswordValidator(?callable $handler = null): self
     {
         if (is_callable($handler)) {
             $this->passwordValidator = $handler;
