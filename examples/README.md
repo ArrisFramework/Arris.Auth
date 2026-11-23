@@ -94,4 +94,5 @@ curl -s -X POST http://localhost:8080/api/logout \
   «проверить credentials и выдать токен»;
 - CSRF-защита — double-submit cookie без подписи;
 - нет подтверждения email, сброса пароля, throttling и rate limiting;
-- SQLite-схема урезана до таблиц, которые нужны демо.
+- SQLite-схема урезана до таблиц, которые нужны демо, и лежит в
+  `_database/schema_sqlite.sql`.

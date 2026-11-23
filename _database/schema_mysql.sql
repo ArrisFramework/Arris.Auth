@@ -1,9 +1,12 @@
 -- Arris.Auth schema for MySQL/MariaDB.
--- The users, users_confirmations, users_remembered, users_resets and
--- users_throttling tables keep the layout of karelwintersky/arris.delight-php-auth.
+-- All statements are idempotent (CREATE TABLE IF NOT EXISTS), so this file can be
+-- applied to an existing database without overwriting existing tables.
+--
 -- users_tokens is new: it stores bearer tokens and "remember me" tokens.
+-- users_remembered and users_resets use user_id (Delight PHP Auth uses `user`);
+-- see README.md for the forward and reverse migration commands.
 
-CREATE TABLE `users` (
+CREATE TABLE IF NOT EXISTS `users` (
     `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
     `email` varchar(249) NOT NULL,
     `password` varchar(255) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
@@ -21,7 +24,7 @@ CREATE TABLE `users` (
     KEY `username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `users_confirmations` (
+CREATE TABLE IF NOT EXISTS `users_confirmations` (
     `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
     `user_id` int(10) unsigned NOT NULL,
     `email` varchar(249) NOT NULL,
@@ -34,7 +37,7 @@ CREATE TABLE `users_confirmations` (
     KEY `user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `users_remembered` (
+CREATE TABLE IF NOT EXISTS `users_remembered` (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
     `user_id` int(10) unsigned NOT NULL,
     `selector` varchar(24) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
@@ -45,7 +48,7 @@ CREATE TABLE `users_remembered` (
     KEY `user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `users_resets` (
+CREATE TABLE IF NOT EXISTS `users_resets` (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
     `user_id` int(10) unsigned NOT NULL,
     `selector` varchar(20) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
@@ -56,7 +59,7 @@ CREATE TABLE `users_resets` (
     KEY `user_expires` (`user_id`,`expires`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `users_throttling` (
+CREATE TABLE IF NOT EXISTS `users_throttling` (
     `bucket` varchar(44) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
     `tokens` float unsigned NOT NULL,
     `replenished_at` int(10) unsigned NOT NULL,
@@ -65,7 +68,7 @@ CREATE TABLE `users_throttling` (
     KEY `expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `users_tokens` (
+CREATE TABLE IF NOT EXISTS `users_tokens` (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
     `user_id` int(10) unsigned NOT NULL,
     `force_logout` mediumint(7) unsigned NOT NULL DEFAULT 0,
@@ -84,7 +87,7 @@ CREATE TABLE `users_tokens` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Optional: required only for Arris\Auth\Session\PDOSessionHandler
-CREATE TABLE `sessions` (
+CREATE TABLE IF NOT EXISTS `sessions` (
     `id` varchar(128) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
     `data` mediumtext NOT NULL,
     `last_activity` int(10) unsigned NOT NULL,

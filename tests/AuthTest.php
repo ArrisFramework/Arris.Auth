@@ -45,40 +45,13 @@ final class AuthTest extends TestCase
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
-        $this->pdo->exec(
-            'CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL UNIQUE,
-                password TEXT NOT NULL,
-                username TEXT DEFAULT NULL,
-                status INTEGER NOT NULL DEFAULT 0,
-                verified INTEGER NOT NULL DEFAULT 0,
-                resettable INTEGER NOT NULL DEFAULT 1,
-                roles_mask INTEGER NOT NULL DEFAULT 0,
-                registered INTEGER NOT NULL,
-                last_login INTEGER DEFAULT NULL,
-                force_logout INTEGER NOT NULL DEFAULT 0,
-                properties TEXT DEFAULT NULL
-            )'
-        );
+        $schema = \file_get_contents(\dirname(__DIR__) . '/_database/schema_sqlite.sql');
 
-        $this->pdo->exec(
-            'CREATE TABLE users_tokens (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                force_logout INTEGER NOT NULL DEFAULT 0,
-                kind TEXT NOT NULL DEFAULT "api",
-                selector TEXT DEFAULT NULL UNIQUE,
-                token TEXT NOT NULL,
-                name TEXT DEFAULT NULL,
-                expires INTEGER NOT NULL DEFAULT 0,
-                created INTEGER NOT NULL,
-                last_used INTEGER DEFAULT NULL
-            )'
-        );
+        if ($schema === false) {
+            throw new \RuntimeException('Unable to read the SQLite schema');
+        }
 
-        $this->pdo->exec('CREATE INDEX users_username ON users (username)');
-        $this->pdo->exec('CREATE INDEX users_tokens_token ON users_tokens (token)');
+        $this->pdo->exec($schema);
     }
 
     protected function tearDown(): void

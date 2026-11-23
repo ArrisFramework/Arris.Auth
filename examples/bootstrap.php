@@ -20,7 +20,7 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 $pdo->exec('PRAGMA foreign_keys = ON');
 
-$schema = file_get_contents(__DIR__ . '/schema.sqlite.sql');
+$schema = file_get_contents(dirname(__DIR__) . '/_database/schema_sqlite.sql');
 if ($schema === false) {
     throw new RuntimeException('Unable to read the SQLite schema');
 }

@@ -1,3 +1,6 @@
+-- Arris.Auth schema for SQLite.
+-- Used by the test suite and the examples.
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
