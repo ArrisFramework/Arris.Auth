@@ -21,13 +21,16 @@ composer require karelwintersky/arris.auth
 
 ## Схема БД
 
-Пакет использует те же таблицы `users`, `users_confirmations`, `users_remembered`,
-`users_resets`, `users_throttling`, что и `arris.delight-php-auth`, плюс одну новую:
+`Auth` работает с таблицами `users` и `users_tokens`. Остальные таблицы
+(`users_confirmations`, `users_remembered`, `users_resets`, `users_throttling`)
+оставлены в схеме для совместимости с `arris.delight-php-auth`, но текущий код их
+не использует.
 
 ```sql
 CREATE TABLE `users_tokens` (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
     `user_id` int(10) unsigned NOT NULL,
+    `force_logout` mediumint(7) unsigned NOT NULL DEFAULT 0, -- снимок users.force_logout
     `kind` varchar(16) NOT NULL DEFAULT 'api',     -- api | remember
     `selector` varchar(24) DEFAULT NULL,           -- только для remember
     `token` varchar(64) NOT NULL,                  -- sha256-хэш токена
@@ -37,12 +40,28 @@ CREATE TABLE `users_tokens` (
     `last_used` int(10) unsigned DEFAULT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `selector` (`selector`),
+    KEY `token` (`token`),
     KEY `user_kind` (`user_id`, `kind`),
     KEY `expires` (`expires`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-Полная схема — в `_database/schema_mysql.sql`.
+Для `users` также нужен индекс `KEY username (username)` — по нему работает
+`loginWithUsername()`. Полная схема — в `_database/schema_mysql.sql`.
+
+При обновлении существующей БД добавьте колонку и индексы:
+
+```sql
+ALTER TABLE `users_tokens`
+    ADD COLUMN `force_logout` mediumint(7) unsigned NOT NULL DEFAULT 0,
+    ADD KEY `token` (`token`);
+ALTER TABLE `users` ADD KEY `username` (`username`);
+```
+
+Старые строки `users_tokens` получат `force_logout = 0`; если у пользователя
+`users.force_logout > 0`, его старые токены будут отклонены. Это безопасный
+fail-closed вариант: после обновления такие пользователи должны получить новые
+токены.
 
 ### Где хранятся сессии
 
@@ -90,7 +109,9 @@ $auth = new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_TOKEN));
 последующие изменения не влияют на уже созданный `Auth`.
 
 - `auto` — если есть `Authorization: Bearer ...`, проверяется токен; иначе cookie-сессия.
-  Это удобный режим по умолчанию для смешанного приложения.
+  Если Bearer-заголовок присутствует, но токен невалиден, сессия **не** используется:
+  запрос считается неаутентифицированным. Это сделано намеренно, чтобы не смешивать
+  два источника личности. Это удобный режим по умолчанию для смешанного приложения.
 - `session` — bearer-заголовок игнорируется, работает только cookie-сессия.
 - `token` — сессия не читается и не стартует; только bearer.
 
@@ -112,6 +133,30 @@ $auth = new Auth($pdo, (new AuthConfig())->setMode(Auth::MODE_TOKEN));
 `issueToken()`. Дополнительной «магии» для токенов нет: тот же `Auth`, та же таблица
 `users_tokens`, только без cookie и PHP-сессии. Поэтому можно держать два экземпляра
 `Auth` — один для веба, второй для API.
+
+### Политика доступа
+
+`setRequireVerified(true)` и `setRejectNonNormalStatus(true)` применяются не только
+к `login()`, но и к уже существующим сессиям, remember-cookie и bearer-токенам.
+Если пользователю сняли `verified` или изменили `status`, доступ пропадает на
+следующем запросе.
+
+Bearer- и remember-токены хранят снимок `users.force_logout` на момент выдачи.
+Поэтому `logoutEverywhere()` и `changePassword()` инвалидируют их даже в том случае,
+если удаление строки токена не удалось выполнить атомарно. `issueToken()` отказывает
+неверифицированным и отключённым пользователям.
+
+Remember-токен ротируется при каждом успешном использовании: старый selector
+удаляется, выдаётся новый с тем же сроком действия. Неверный токен очищает только
+cookie клиента и не удаляет чужую валидную строку по selector.
+
+### HTTPS и reverse proxy
+
+`setSessionCookie(['secure' => 'auto'])` (значение по умолчанию) включает `Secure`,
+если запрос пришёл по HTTPS напрямую, на порт 443 или с заголовком
+`X-Forwarded-Proto: https` / `X-Forwarded-SSL: on`. Если proxy не передаёт эти
+заголовки, задайте `secure => true` явно. `SameSite=None` требует `secure=true`;
+нарушение этого правила даёт `ConfigurationException`.
 
 ### Сессия или bearer: что выбрать
 
@@ -409,12 +454,12 @@ final class AppRole extends \Arris\Auth\Role
 | `setTablePrefix()` | `''` | префикс таблиц |
 | `setDbSchema()` | `null` | schema/database qualifier |
 | `setSessionName()` | `arris_auth` | имя PHP-сессии |
-| `setSessionCookie()` | `path=/`, `secure=auto`, `httponly=true`, `samesite=Lax` | параметры cookie сессии |
+| `setSessionCookie()` | `path=/`, `secure=auto`, `httponly=true`, `samesite=Lax` | параметры cookie сессии; неизвестные ключи и неверные типы отклоняются |
 | `setSessionHandler()` | `null` | `SessionHandlerInterface`; `null` — настройки PHP |
 | `setRememberCookieName()` | `arris_remember` | имя remember-cookie |
 | `setRememberTtl()` | 30 дней | срок жизни remember-токена |
-| `setTokenTtl()` | 30 дней | срок жизни bearer-токена; `0` — бессрочно |
-| `setRequireVerified()` | `true` | требовать `verified=1` при входе |
+| `setTokenTtl()` | 30 дней | срок жизни bearer-токена; `0` — бессрочно; отрицательный TTL отклоняется |
+| `setRequireVerified()` | `true` | требовать `verified=1` для сессии, bearer, remember и выдачи токенов |
 | `setRejectNonNormalStatus()` | `true` | не пускать пользователей со статусом не `NORMAL` |
 | `setMinPasswordLength()` | `8` | минимальная длина пароля при регистрации/смене |
 | `setUpdateLastLogin()` | `true` | обновлять `users.last_login` |
@@ -435,4 +480,19 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 54 теста, 165 assertions.
+Текущее состояние: 88 тестов, 233 assertions. Два MySQL-теста пропускаются, если
+не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
+
+## Что пока не реализовано
+
+Пакет остаётся MVP в части account lifecycle:
+
+- нет throttling / rate limiting / lockout;
+- нет подтверждения email и сброса пароля;
+- `MailerInterface` / `NativeMailer` — заготовки; `sendPasswordReset()` и
+  `sendActivation()` пока ничего не отправляют;
+- кастомные `emailValidator` / `passwordValidator` в `AuthConfig` не вызываются;
+- таблицы `users_confirmations`, `users_resets`, `users_throttling` не используются.
+
+Эти сценарии приложение реализует поверх `register()`, `verifyUser()`,
+`changePassword()` и своих лимитеров/мейлера.
