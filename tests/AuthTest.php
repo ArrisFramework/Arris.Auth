@@ -516,6 +516,64 @@ final class AuthTest extends TestCase
         $this->auth()->issueToken(999);
     }
 
+    public function testIssueTokenRejectsUnverifiedUser(): void
+    {
+        $id = $this->createUser(verified: false);
+
+        $this->expectException(EmailNotVerifiedException::class);
+
+        $this->auth()->issueToken($id);
+    }
+
+    public function testIssueTokenRejectsDisabledUser(): void
+    {
+        $id = $this->createUser();
+        $this->pdo->exec('UPDATE users SET status = ' . Status::BANNED->value . ' WHERE id = ' . $id);
+
+        $this->expectException(AccountDisabledException::class);
+
+        $this->auth()->issueToken($id);
+    }
+
+    public function testBearerTokenIsRejectedWhenUserBecomesUnverified(): void
+    {
+        $id = $this->createUser();
+        $token = $this->auth()->issueToken($id);
+
+        $this->pdo->exec('UPDATE users SET verified = 0 WHERE id = ' . $id);
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        self::assertNull($this->auth(Auth::MODE_TOKEN)->user());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_tokens')->fetchColumn());
+    }
+
+    public function testSessionIsRejectedWhenUserBecomesUnverified(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        $this->pdo->exec('UPDATE users SET verified = 0 WHERE id = ' . $id);
+
+        self::assertNull($this->auth()->user());
+    }
+
+    public function testUnverifiedUserCanUseBearerWhenVerificationIsNotRequired(): void
+    {
+        $config = (new AuthConfig())->setRequireVerified(false);
+        $auth = $this->auth($config);
+        $id = $auth->register('unverified@example.com', 'correct horse battery staple', verified: false);
+        $token = $auth->issueToken($id);
+
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+        $user = $this->auth($config->setMode(Auth::MODE_TOKEN))->user();
+
+        self::assertNotNull($user);
+        self::assertSame($id, $user->id);
+    }
+
     public function testLoginWithRememberCreatesRememberToken(): void
     {
         $id = $this->createUser();

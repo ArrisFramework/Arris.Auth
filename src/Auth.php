@@ -373,6 +373,14 @@ class Auth
             return null;
         }
 
+        if ($this->isUnverified($row)) {
+            $this->clearSessionAuth();
+            $this->deleteRememberCookie();
+            $this->resolved = true;
+
+            return null;
+        }
+
         $this->resolved = true;
 
         return $this->cachedUser = User::fromRow($row);
@@ -717,11 +725,23 @@ class Auth
      * В таблицу users_tokens записывается только его SHA-256 хэш.
      *
      * @throws UnknownUserException
+     * @throws EmailNotVerifiedException
+     * @throws AccountDisabledException
      */
     public function issueToken(int $userId, ?int $ttl = null, ?string $name = null): string
     {
-        if ($this->users->findById($userId) === null) {
+        $userRow = $this->users->findById($userId);
+
+        if ($userRow === null) {
             throw new UnknownUserException('Unknown user');
+        }
+
+        if ($this->isUnverified($userRow)) {
+            throw new EmailNotVerifiedException('The email address has not been verified yet');
+        }
+
+        if ($this->isDisabled($userRow)) {
+            throw new AccountDisabledException('This account is disabled');
         }
 
         $token = self::randomToken(32);
@@ -1028,7 +1048,7 @@ class Auth
             }
         }
 
-        if ($this->config->getRequireVerified() && (int) $row['verified'] !== 1) {
+        if ($this->isUnverified($row)) {
             throw new EmailNotVerifiedException('The email address has not been verified yet');
         }
 
@@ -1089,6 +1109,12 @@ class Auth
             return null;
         }
 
+        if ($this->isUnverified($userRow)) {
+            $this->tokens->delete((int) $tokenRow['id']);
+
+            return null;
+        }
+
         $this->touchToken($tokenRow);
 
         return User::fromRow($userRow);
@@ -1136,7 +1162,7 @@ class Auth
             return false;
         }
 
-        if ($this->config->getRequireVerified() && (int) $userRow['verified'] !== 1) {
+        if ($this->isUnverified($userRow)) {
             $this->deleteRememberCookie();
 
             return false;
@@ -1405,6 +1431,19 @@ class Auth
     {
         return $this->config->getRejectNonNormalStatus()
             && (int) ($row['status'] ?? Status::NORMAL->value) !== Status::NORMAL->value;
+    }
+
+    /**
+     * Returns whether the user is unverified while verification is required.
+     *
+     * Возвращает true, если пользователь не подтверждён, а подтверждение требуется.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function isUnverified(array $row): bool
+    {
+        return $this->config->getRequireVerified()
+            && (int) ($row['verified'] ?? 0) !== 1;
     }
 
     /**
