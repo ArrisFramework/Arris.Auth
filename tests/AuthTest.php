@@ -662,6 +662,22 @@ final class AuthTest extends TestCase
         self::assertSame(64, \strlen((string) $row['token']));
     }
 
+    public function testLogoutAfterRememberLoginRevokesRememberTokenInSameRequest(): void
+    {
+        $this->createUser();
+        $auth = $this->auth();
+
+        $auth->login('user@example.com', 'correct horse battery staple', remember: true);
+
+        self::assertArrayHasKey('arris_remember', $_COOKIE);
+        self::assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM users_tokens WHERE kind = 'remember'")->fetchColumn());
+
+        $auth->logout();
+
+        self::assertArrayNotHasKey('arris_remember', $_COOKIE);
+        self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM users_tokens WHERE kind = 'remember'")->fetchColumn());
+    }
+
     public function testChangePasswordKeepsCurrentSessionAndRevokesTokens(): void
     {
         $id = $this->createUser();

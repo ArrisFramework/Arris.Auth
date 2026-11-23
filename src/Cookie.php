@@ -31,7 +31,7 @@ final class Cookie
 
         self::assertHeadersNotSent();
 
-        \setcookie($name, $value, [
+        $result = \setcookie($name, $value, [
             'expires' => $expires,
             'path' => $options['path'],
             'domain' => $options['domain'],
@@ -39,6 +39,12 @@ final class Cookie
             'httponly' => $options['httponly'],
             'samesite' => $options['samesite'],
         ]);
+
+        if ($result === false) {
+            throw new ConfigurationException("Unable to set cookie: {$name}");
+        }
+
+        $_COOKIE[$name] = $value;
     }
 
     /**
