@@ -299,6 +299,17 @@ final class AppRole extends \Arris\Auth\Role
 }
 ```
 
+`AppRole::PLAYER` — обычный `int`, поэтому `hasRole(AppRole::PLAYER)` работает
+без настройки. Чтобы `Auth::getRoles()` и `Auth::roleNamesForUser()` использовали
+прикладные имена, передайте карту в конфиг:
+
+```php
+$config = (new AuthConfig())->setRolesMap(AppRole::map());
+$auth = new Auth($pdo, $config);
+```
+
+Без `setRolesMap()` используется базовая карта `Role::map()`.
+
 ---
 
 ## 7. Проверка ролей
@@ -323,14 +334,15 @@ if ($auth->hasAllRoles(Role::ADMIN, Role::EDITOR)) {
 
 ```php
 $mask = $auth->roles($userId);                 // int bitmask
-$names = $auth->roleNamesForUser($userId);     // ['ADMIN', 'EDITOR']
+$names = $auth->roleNamesForUser($userId);     // ['ADMIN', 'EDITOR'] или карта из setRolesMap()
 
 $user = $auth->user();
 $names = $user->roleNames();                   // по стандартной карте Role
 $names = $user->roleNames(AppRole::map());     // по карте приложения
 ```
 
-`getRoles()` у текущего пользователя возвращает `bit => name`:
+`getRoles()` у текущего пользователя возвращает `bit => name` и учитывает
+`setRolesMap()`:
 
 ```php
 if ($auth->isLoggedIn()) {

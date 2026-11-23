@@ -525,6 +525,25 @@ final class AppRole extends \Arris\Auth\Role
 и `$user->roleNames(AppRole::map())` работают без switch и reflection. Если несколько
 имён ссылаются на один бит, `getMap()` схлопнет их, а `names()` вернёт все имена.
 
+`AppRole` — это синтаксический сахар: `AppRole::GAME_MASTER` остаётся обычным `int`,
+поэтому `hasRole(AppRole::GAME_MASTER)` работает без дополнительной настройки.
+Чтобы `Auth::getRoles()` и `Auth::roleNamesForUser()` возвращали прикладные имена,
+передайте карту в конфиг:
+
+```php
+$config = (new AuthConfig())->setRolesMap(AppRole::map());
+$auth = new Auth($pdo, $config);
+
+$auth->getRoles();                 // [64 => 'GAME_MASTER', ...]
+$auth->roleNamesForUser($userId);  // ['GAME_MASTER', ...]
+```
+
+`setRolesMap(null)` возвращает базовую `Role::map()`. `User::roleNames()` без
+аргумента всегда использует базовую карту; для прикладных имён передайте
+`$user->roleNames(AppRole::map())` или используйте `$auth->roleNamesForUser()`.
+
+Почему `AppRole` — класс с константами, а не enum и не final-база: см. `AGENTS.md`.
+
 ## Опции AuthConfig
 
 | Метод | По умолчанию | Смысл |
@@ -544,11 +563,12 @@ final class AppRole extends \Arris\Auth\Role
 | `setUpdateLastLogin()` | `true` | обновлять `users.last_login` |
 | `setTouchTokenInterval()` | `60` | как часто обновлять `last_used` токена; `0` — отключить |
 | `setAutoInitialize()` | `true` | разрешать текущую аутентификацию в конструкторе |
+| `setRolesMap()` | `null` | карта `name => bit` для отображения ролей; `null` — базовая `Role::map()` |
 
 `setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
 snake_case-имени из старого API. Внутри он вызывает те же типизированные сеттеры;
 неизвестный ключ или неверное значение дают `ConfigurationException`, а неверный
-PHP-тип значения — `TypeError`.
+PHP-тип значения — `TypeError`. Карта ролей задаётся ключом `roles_map`.
 
 Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()` и т.д.
 
@@ -559,7 +579,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 88 тестов, 233 assertions. Два MySQL-теста пропускаются, если
+Текущее состояние: 94 теста, 245 assertions. Два MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано
