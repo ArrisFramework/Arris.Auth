@@ -1,6 +1,6 @@
 # Arris.Auth
 
-`karelwintersky/arris.auth` — standalone-аутентификация для PHP 8.2+:
+`karelwintersky/arris.auth` — standalone-аутентификация для PHP 8.2–8.4:
 cookie-сессии и bearer-токены в одном небольшом пакете. Без фреймворка, без DI-контейнера,
 без обязательных зависимостей кроме PDO.
 
@@ -49,19 +49,97 @@ CREATE TABLE `users_tokens` (
 Для `users` также нужен индекс `KEY username (username)` — по нему работает
 `loginWithUsername()`. Полная схема — в `_database/schema_mysql.sql`.
 
-При обновлении существующей БД добавьте колонку и индексы:
+### Миграция с Delight PHP Auth
+
+Наша схема использует `user_id` в `users_remembered` и `users_resets`; в Delight
+PHP Auth там колонка `user`. `users_confirmations` уже использует `user_id` и не
+переименовывается.
+
+Полный сценарий — в `_database/migrations/0.4.0.sql`. Ключевые команды:
 
 ```sql
-ALTER TABLE `users_tokens`
-    ADD COLUMN `force_logout` mediumint(7) unsigned NOT NULL DEFAULT 0,
-    ADD KEY `token` (`token`);
-ALTER TABLE `users` ADD KEY `username` (`username`);
+-- Delight -> Arris.Auth
+ALTER TABLE `users_remembered`
+    CHANGE COLUMN `user` `user_id` int(10) unsigned NOT NULL;
+
+ALTER TABLE `users_remembered`
+    DROP INDEX `user`,
+    ADD KEY `user_id` (`user_id`);
+
+ALTER TABLE `users_resets`
+    CHANGE COLUMN `user` `user_id` int(10) unsigned NOT NULL;
+
+ALTER TABLE `users_resets`
+    DROP INDEX `user_expires`,
+    ADD KEY `user_expires` (`user_id`, `expires`);
+
+-- Остальное: properties, username index, InnoDB, users_tokens, sessions
+-- выполняется из _database/migrations/0.4.0.sql
 ```
 
-Старые строки `users_tokens` получат `force_logout = 0`; если у пользователя
-`users.force_logout > 0`, его старые токены будут отклонены. Это безопасный
-fail-closed вариант: после обновления такие пользователи должны получить новые
-токены.
+Полный запуск:
+
+```bash
+mysql -u app_user -p app_database < _database/migrations/0.4.0.sql
+```
+
+Что делает миграция:
+
+- добавляет `users.properties` и `KEY username (username)`;
+- переименовывает `user` → `user_id` в `users_remembered` и `users_resets`;
+- переводит таблицы `users*` в InnoDB;
+- создаёт `users_tokens` (с `force_logout` и индексами) и опциональную `sessions`.
+
+`users_tokens` обязательна для bearer и remember-me. Без неё работает только
+cookie-сессия на `users`. Если полная миграция не нужна, минимально достаточно
+создать `users_tokens`; переименование `user` → `user_id` в legacy-таблицах нужно
+только для совпадения схемы (код эти таблицы не использует). Для транзакционных
+гарантий `users` должен быть InnoDB.
+
+Старые remember-cookie из `users_remembered` в `users_tokens` не переносятся:
+пользователи после миграции один раз войдут заново. Старые строки `users_tokens`
+получат `force_logout = 0`; если у пользователя `users.force_logout > 0`, его
+старые токены будут отклонены. Это безопасный fail-closed вариант.
+
+### Обратная миграция на Delight PHP Auth
+
+Обратная миграция **удаляет** `users_tokens` и `sessions`, а также `users.properties`.
+Сначала сделайте резервную копию. Если `users.properties` использовалась приложением,
+не удаляйте колонку.
+
+```sql
+-- 1. Удалить новые таблицы (данные bearer/remember и сессий будут потеряны).
+DROP TABLE IF EXISTS `sessions`;
+DROP TABLE IF EXISTS `users_tokens`;
+
+-- 2. Вернуть имена колонок и индексов Delight.
+ALTER TABLE `users_remembered` DROP INDEX `user_id`;
+ALTER TABLE `users_remembered`
+    CHANGE COLUMN `user_id` `user` int(10) unsigned NOT NULL;
+ALTER TABLE `users_remembered`
+    ADD KEY `user` (`user`);
+
+ALTER TABLE `users_resets` DROP INDEX `user_expires`;
+ALTER TABLE `users_resets`
+    CHANGE COLUMN `user_id` `user` int(10) unsigned NOT NULL;
+ALTER TABLE `users_resets`
+    ADD KEY `user_expires` (`user`, `expires`);
+
+-- 3. Убрать поля/индексы, которых нет в Delight.
+ALTER TABLE `users` DROP INDEX `username`;
+ALTER TABLE `users` DROP COLUMN `properties`;
+
+-- 4. Вернуть MyISAM, если это требуется старой схеме.
+ALTER TABLE `users` ENGINE=MyISAM;
+ALTER TABLE `users_confirmations` ENGINE=MyISAM;
+ALTER TABLE `users_remembered` ENGINE=MyISAM;
+ALTER TABLE `users_resets` ENGINE=MyISAM;
+ALTER TABLE `users_throttling` ENGINE=MyISAM;
+```
+
+После обратной миграции старые remember-cookie из `users_remembered` снова
+начнут использоваться, если они не истекли. Пользователи, вошедшие через новый
+`users_tokens`, потеряют эти токены и должны войти заново.
 
 ### Где хранятся сессии
 
@@ -348,6 +426,7 @@ $auth->login($email, $password, remember: true);
 
 В `examples/` есть минимальное приложение на SQLite: вход/регистрация, remember-me,
 защищённая страница, bearer-токены и JSON API. Один front controller, без фреймворка.
+Схема БД берётся из `_database/schema_sqlite.sql`.
 
 ```bash
 composer install
