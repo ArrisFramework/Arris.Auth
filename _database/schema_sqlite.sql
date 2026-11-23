@@ -32,6 +32,18 @@ CREATE INDEX IF NOT EXISTS users_confirmations_token ON users_confirmations (tok
 CREATE INDEX IF NOT EXISTS users_confirmations_email_expires ON users_confirmations (email, expires);
 CREATE INDEX IF NOT EXISTS users_confirmations_user_id ON users_confirmations (user_id);
 
+CREATE TABLE IF NOT EXISTS users_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    selector TEXT NOT NULL,
+    token TEXT NOT NULL,
+    expires INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_resets_selector ON users_resets (selector);
+CREATE INDEX IF NOT EXISTS users_resets_token ON users_resets (token);
+CREATE INDEX IF NOT EXISTS users_resets_user_expires ON users_resets (user_id, expires);
+
 CREATE TABLE IF NOT EXISTS users_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,

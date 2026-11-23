@@ -133,6 +133,29 @@ final class MySqlIntegrationTest extends TestCase
         );
     }
 
+    public function testPasswordResetFlowOnMySql(): void
+    {
+        $mailer = new RecordingMailer();
+        $config = (new AuthConfig())
+            ->setSessionName('arris_mysql_reset')
+            ->setSessionCookie(['secure' => false, 'path' => '/'])
+            ->setUserResetOptions(enabled: true, ttl: 60, allowedAny: false)
+            ->setMailer($mailer);
+
+        $auth = new Auth($this->pdo, $config);
+        $auth->register('reset-mysql@example.com', 'correct horse battery staple', 'reset-mysql');
+
+        $state = $auth->requestPasswordReset('reset-mysql@example.com');
+
+        self::assertTrue($state->isSent());
+        self::assertCount(1, $mailer->resets);
+
+        $user = $auth->resetPassword($mailer->resets[0]['key'], 'a new correct horse battery staple');
+
+        self::assertSame('reset-mysql@example.com', $user->email);
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+    }
+
     public function testSchemaContainsAuthLookupIndexes(): void
     {
         $userIndexes = \array_column(
@@ -147,9 +170,14 @@ final class MySqlIntegrationTest extends TestCase
             $this->pdo->query('SHOW INDEX FROM users_confirmations')->fetchAll(),
             'Key_name'
         );
+        $resetIndexes = \array_column(
+            $this->pdo->query('SHOW INDEX FROM users_resets')->fetchAll(),
+            'Key_name'
+        );
 
         self::assertContains('username', $userIndexes);
         self::assertContains('token', $tokenIndexes);
         self::assertContains('token', $confirmationIndexes);
+        self::assertContains('token', $resetIndexes);
     }
 }

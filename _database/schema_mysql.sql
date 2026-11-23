@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS `users_resets` (
     `expires` int(10) unsigned NOT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `selector` (`selector`),
+    KEY `token` (`token`),
     KEY `user_expires` (`user_id`,`expires`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

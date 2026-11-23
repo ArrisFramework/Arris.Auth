@@ -18,6 +18,7 @@ use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Role;
 use Arris\Auth\DTO\ConfirmationState;
+use Arris\Auth\DTO\ResetState;
 use Arris\Auth\DTO\Status;
 use Arris\Auth\DTO\User;
 use Tests\Support\RecordingMailer;
@@ -102,6 +103,19 @@ final class AuthTest extends TestCase
         return $this->auth($config);
     }
 
+    private function resetAuth(
+        RecordingMailer $mailer,
+        bool $allowedAny = false,
+        ?AuthConfig $config = null,
+    ): Auth {
+        $config ??= new AuthConfig();
+        $config
+            ->setUserResetOptions(enabled: true, ttl: 60, allowedAny: $allowedAny)
+            ->setMailer($mailer);
+
+        return $this->auth($config);
+    }
+
     public function testSchemaHasAuthLookupIndexes(): void
     {
         $userIndexes = \array_column($this->pdo->query("PRAGMA index_list('users')")->fetchAll(), 'name');
@@ -110,10 +124,15 @@ final class AuthTest extends TestCase
             $this->pdo->query("PRAGMA index_list('users_confirmations')")->fetchAll(),
             'name'
         );
+        $resetIndexes = \array_column(
+            $this->pdo->query("PRAGMA index_list('users_resets')")->fetchAll(),
+            'name'
+        );
 
         self::assertContains('users_username', $userIndexes);
         self::assertContains('users_tokens_token', $tokenIndexes);
         self::assertContains('users_confirmations_token', $confirmationIndexes);
+        self::assertContains('users_resets_token', $resetIndexes);
     }
 
     public function testRegisterCreatesUserWithHashedPassword(): void
@@ -347,6 +366,159 @@ final class AuthTest extends TestCase
         $this->pdo->exec('UPDATE users_confirmations SET expires = ' . (\time() - 1));
 
         self::assertSame(1, $auth->deleteExpiredConfirmations());
+    }
+
+    public function testRequestPasswordResetStates(): void
+    {
+        $mailer = new RecordingMailer();
+
+        self::assertSame(
+            ResetState::NOT_ENABLED,
+            $this->auth((new AuthConfig())->setMailer($mailer))->requestPasswordReset('missing@example.com')->reason
+        );
+
+        $auth = $this->resetAuth($mailer);
+        self::assertSame(ResetState::UNKNOWN_USER, $auth->requestPasswordReset('missing@example.com')->reason);
+
+        $id = $this->createUser('not-resettable@example.com');
+        $this->pdo->exec('UPDATE users SET resettable = 0 WHERE id = ' . $id);
+
+        self::assertSame(ResetState::NOT_ALLOWED, $auth->requestPasswordReset('not-resettable@example.com')->reason);
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+    }
+
+    public function testRequestPasswordResetSendsKeyAndStoresHash(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->resetAuth($mailer);
+        $this->createUser('reset@example.com');
+
+        $state = $auth->requestPasswordReset('reset@example.com');
+
+        self::assertTrue($state->isSent());
+        self::assertCount(1, $mailer->resets);
+        self::assertSame('reset@example.com', $mailer->resets[0]['email']);
+
+        $stored = (string) $this->pdo->query('SELECT token FROM users_resets')->fetchColumn();
+
+        self::assertSame(\hash('sha256', $mailer->resets[0]['key']), $stored);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+    }
+
+    public function testResetPasswordChangesPasswordAndInvalidatesCredentials(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->resetAuth($mailer);
+        $id = $this->createUser('change-reset@example.com');
+        $token = $auth->issueToken($id);
+        $auth->requestPasswordReset('change-reset@example.com');
+
+        $user = $auth->resetPassword($mailer->resets[0]['key'], 'a new correct horse battery staple');
+
+        self::assertSame($id, $user->id);
+        self::assertFalse($auth->revokeToken($token));
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+
+        $row = $this->pdo->query('SELECT password, force_logout FROM users WHERE id = ' . $id)->fetch();
+
+        self::assertTrue(\password_verify('a new correct horse battery staple', (string) $row['password']));
+        self::assertFalse(\password_verify('correct horse battery staple', (string) $row['password']));
+        self::assertSame(1, (int) $row['force_logout']);
+    }
+
+    public function testResetPasswordRejectsInvalidAndExpiredTokens(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->resetAuth($mailer);
+        $this->createUser('invalid-reset@example.com');
+        $auth->requestPasswordReset('invalid-reset@example.com');
+
+        $token = $mailer->resets[0]['key'];
+
+        try {
+            $auth->resetPassword('invalid-token', 'a new correct horse battery staple');
+            self::fail('Expected InvalidResetException');
+        } catch (\Arris\Auth\Exception\InvalidResetException) {
+        }
+
+        $this->pdo->exec('UPDATE users_resets SET expires = ' . (\time() - 1));
+
+        $this->expectException(\Arris\Auth\Exception\InvalidResetException::class);
+        $auth->resetPassword($token, 'a new correct horse battery staple');
+    }
+
+    public function testResetLatestOnlyInvalidatesPreviousCode(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->resetAuth($mailer);
+        $this->createUser('latest@example.com');
+
+        $auth->requestPasswordReset('latest@example.com');
+        $oldToken = $mailer->resets[0]['key'];
+        $auth->requestPasswordReset('latest@example.com');
+        $newToken = $mailer->resets[1]['key'];
+
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+
+        try {
+            $auth->resetPassword($oldToken, 'a new correct horse battery staple');
+            self::fail('Expected InvalidResetException');
+        } catch (\Arris\Auth\Exception\InvalidResetException) {
+        }
+
+        self::assertTrue($auth->resetPassword($newToken, 'a new correct horse battery staple')->isVerified());
+    }
+
+    public function testResetAllowedAnyKeepsPreviousCodes(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->resetAuth($mailer, allowedAny: true);
+        $this->createUser('any@example.com');
+
+        $auth->requestPasswordReset('any@example.com');
+        $auth->requestPasswordReset('any@example.com');
+
+        self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+
+        $auth->resetPassword($mailer->resets[0]['key'], 'a new correct horse battery staple');
+
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+
+        try {
+            $auth->resetPassword($mailer->resets[1]['key'], 'another correct horse battery staple');
+            self::fail('Expected InvalidResetException');
+        } catch (\Arris\Auth\Exception\InvalidResetException) {
+        }
+    }
+
+    public function testResetMailFailureReturnsStateAndKeepsToken(): void
+    {
+        $mailer = new RecordingMailer();
+        $mailer->result = false;
+        $auth = $this->resetAuth($mailer);
+        $this->createUser('mail-reset@example.com');
+
+        $state = $auth->requestPasswordReset('mail-reset@example.com');
+
+        self::assertSame(ResetState::MAIL_FAILED, $state->reason);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
+        self::assertTrue($auth->resetPassword($mailer->resets[0]['key'], 'a new correct horse battery staple')->isVerified());
+    }
+
+    public function testDeleteExpiredResetsAndDeleteUserRows(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->resetAuth($mailer);
+        $id = $this->createUser('cleanup-reset@example.com');
+        $auth->requestPasswordReset('cleanup-reset@example.com');
+
+        $this->pdo->exec('UPDATE users_resets SET expires = ' . (\time() - 1));
+        self::assertSame(1, $auth->deleteExpiredResets());
+
+        $auth->requestPasswordReset('cleanup-reset@example.com');
+        $auth->deleteUser($id);
+
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_resets')->fetchColumn());
     }
 
     public function testLoginCreatesSession(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Arris\Auth;
 
 use Arris\Auth\DTO\ConfirmationState;
+use Arris\Auth\DTO\ResetState;
 use Arris\Auth\DTO\Status;
 use Arris\Auth\DTO\User;
 use Arris\Auth\Exception\AccountDisabledException;
@@ -16,11 +17,13 @@ use Arris\Auth\Exception\InvalidCredentialsException;
 use Arris\Auth\Exception\InvalidConfirmationException;
 use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
+use Arris\Auth\Exception\InvalidResetException;
 use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UnknownUserException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Mailer\NullMailer;
 use Arris\Auth\Repository\ConfirmationRepository;
+use Arris\Auth\Repository\ResetRepository;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Repository\UserRepository;
 use PDO;
@@ -41,6 +44,7 @@ class Auth
     private UserRepository $users;
     private TokenRepository $tokens;
     private ConfirmationRepository $confirmations;
+    private ResetRepository $resets;
 
     private AuthConfig $config;
 
@@ -97,6 +101,12 @@ class Auth
         );
 
         $this->confirmations = new ConfirmationRepository(
+            $this->pdo,
+            $this->config->getDbSchema(),
+            $this->config->getTablePrefix()
+        );
+
+        $this->resets = new ResetRepository(
             $this->pdo,
             $this->config->getDbSchema(),
             $this->config->getTablePrefix()
@@ -388,6 +398,138 @@ class Auth
     public function deleteExpiredConfirmations(): int
     {
         return $this->confirmations->deleteExpired();
+    }
+
+    /**
+     * Requests a password reset email for a user.
+     *
+     * Запрашивает письмо для сброса пароля пользователя.
+     */
+    public function requestPasswordReset(string $email): ResetState
+    {
+        if (!$this->config->getUserResetEnabled()) {
+            return ResetState::notEnabled();
+        }
+
+        $email = \trim($email);
+        $userRow = $this->users->findByEmail($email);
+
+        if ($userRow === null) {
+            return ResetState::unknownUser();
+        }
+
+        if ((int) ($userRow['resettable'] ?? 1) !== 1) {
+            return ResetState::notAllowed();
+        }
+
+        $resetKey = $this->transactional(function () use ($userRow): string {
+            $userId = (int) $userRow['id'];
+
+            if ($this->config->getUserResetAllowedAny()) {
+                $this->resets->deleteExpiredByUser($userId);
+            } else {
+                $this->resets->deleteByUser($userId);
+            }
+
+            return $this->createReset($userId);
+        });
+
+        try {
+            $sent = $this->sendPasswordReset((string) $userRow['email'], $resetKey);
+        } catch (\Throwable) {
+            $sent = false;
+        }
+
+        return $sent ? ResetState::sent() : ResetState::mailFailed();
+    }
+
+    /**
+     * Resets a password by a reset token and returns the updated user.
+     *
+     * Сбрасывает пароль по reset-токену и возвращает обновлённого пользователя.
+     *
+     * @throws ConfigurationException
+     * @throws InvalidResetException
+     * @throws InvalidPasswordException
+     * @throws UnknownUserException
+     */
+    public function resetPassword(string $resetKey, string $newPassword): User
+    {
+        if (!$this->config->getUserResetEnabled()) {
+            throw new ConfigurationException('Password reset is disabled');
+        }
+
+        $resetKey = \trim($resetKey);
+
+        if ($resetKey === '') {
+            throw new InvalidResetException('Invalid reset token');
+        }
+
+        $reset = $this->resets->findActiveByTokenHash(self::hashToken($resetKey));
+
+        if ($reset === null) {
+            throw new InvalidResetException('Invalid or expired reset token');
+        }
+
+        $userId = (int) $reset['user_id'];
+        $userRow = $this->users->findById($userId);
+
+        if ($userRow === null) {
+            throw new InvalidResetException('Invalid reset token');
+        }
+
+        if ((int) ($userRow['resettable'] ?? 1) !== 1) {
+            $this->resets->deleteByUser($userId);
+
+            throw new InvalidResetException('Password reset is not allowed for this user');
+        }
+
+        $this->validateNewPassword($newPassword);
+
+        $passwordHash = \password_hash($newPassword, \PASSWORD_DEFAULT);
+        if ($passwordHash === false) {
+            throw new AuthException('Unable to hash the password');
+        }
+
+        $this->transactional(function () use ($userId, $passwordHash): void {
+            $this->users->updatePassword($userId, $passwordHash);
+            $this->users->incrementForceLogout($userId);
+            $this->resets->deleteByUser($userId);
+            $this->tokens->deleteByUser($userId);
+        });
+
+        if ($this->isCurrentUser($userId)) {
+            $this->deleteRememberCookie();
+            $this->clearSessionAuth();
+
+            if (Session::isStarted()) {
+                Session::regenerate(true);
+            }
+        }
+
+        if ($this->cachedUser?->id === $userId) {
+            $this->resolved = true;
+            $this->cachedUser = null;
+            $this->currentBearerToken = null;
+        }
+
+        $freshRow = $this->users->findById($userId);
+
+        if ($freshRow === null) {
+            throw new UnknownUserException('Unknown user');
+        }
+
+        return User::fromRow($freshRow);
+    }
+
+    /**
+     * Deletes expired password reset rows.
+     *
+     * Удаляет истёкшие reset-строки.
+     */
+    public function deleteExpiredResets(): int
+    {
+        return $this->resets->deleteExpired();
     }
 
     /**
@@ -1043,6 +1185,7 @@ class Auth
 
         $this->transactional(function () use ($userId): void {
             $this->users->incrementForceLogout($userId);
+            $this->resets->deleteByUser($userId);
             $this->tokens->deleteByUser($userId);
         });
 
@@ -1146,6 +1289,7 @@ class Auth
 
         $this->transactional(function () use ($userId): void {
             $this->confirmations->deleteByUser($userId);
+            $this->resets->deleteByUser($userId);
             $this->tokens->deleteByUser($userId);
             $this->users->delete($userId);
         });
@@ -1197,6 +1341,7 @@ class Auth
         $forceLogout = $this->transactional(function () use ($userId, $passwordHash): int {
             $this->users->updatePassword($userId, $passwordHash);
             $forceLogout = $this->users->incrementForceLogout($userId);
+            $this->resets->deleteByUser($userId);
             $this->tokens->deleteByUser($userId);
 
             return $forceLogout;
@@ -1542,6 +1687,41 @@ class Auth
         $mailer = $this->config->getMailer() ?? new NullMailer();
 
         return $mailer->sendActivation($email, $activationKey);
+    }
+
+    /**
+     * Creates a reset row and returns the plain reset token.
+     *
+     * Создаёт reset-строку и возвращает открытый reset-токен.
+     *
+     * @throws \Exception
+     */
+    private function createReset(int $userId): string
+    {
+        $token = self::randomToken(32);
+        $selector = \bin2hex(\random_bytes(8));
+        $expires = \time() + $this->config->getUserResetTtl();
+
+        $this->resets->create(
+            $userId,
+            $selector,
+            self::hashToken($token),
+            $expires
+        );
+
+        return $token;
+    }
+
+    /**
+     * Sends a password reset email through the configured mailer.
+     *
+     * Отправляет письмо сброса пароля через настроенный мэйлер.
+     */
+    private function sendPasswordReset(string $email, string $resetKey): bool
+    {
+        $mailer = $this->config->getMailer() ?? new NullMailer();
+
+        return $mailer->sendPasswordReset($email, $resetKey);
     }
 
     /**

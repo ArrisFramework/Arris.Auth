@@ -11,6 +11,9 @@ final class RecordingMailer implements MailerInterface
     /** @var list<array{email: string, key: string}> */
     public array $activations = [];
 
+    /** @var list<array{email: string, key: string}> */
+    public array $resets = [];
+
     public bool $result = true;
 
     public function send(
@@ -26,6 +29,8 @@ final class RecordingMailer implements MailerInterface
 
     public function sendPasswordReset(string $email, string $resetKey): bool
     {
+        $this->resets[] = ['email' => $email, 'key' => $resetKey];
+
         return $this->result;
     }
 
