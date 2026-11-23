@@ -84,6 +84,7 @@ curl -s -X POST http://localhost:8080/api/logout \
 - `logout()` отзывает текущий bearer-токен и очищает сессию.
 - Роли: `/admin` проверяет `hasRole(Role::ADMIN)`.
 - CSRF: формы используют double-submit cookie и токен `_csrf`.
+- Пример своего мэйлера со ссылками подтверждения/сброса — `examples/custom_mailer.php`.
 
 ## Ограничения
 

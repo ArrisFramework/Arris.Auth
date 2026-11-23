@@ -2,7 +2,7 @@
 
 `karelwintersky/arris.auth` — standalone-аутентификация для PHP 8.2–8.4:
 cookie-сессии и bearer-токены в одном небольшом пакете. Без фреймворка, без DI-контейнера,
-без обязательных зависимостей кроме PDO.
+с обязательными зависимостями только `PDO` и `psr/log`.
 
 Пакет вырос из идей `karelwintersky/arris.delight-php-auth`, но устроен проще:
 `Auth` по умолчанию, как и старая библиотека, разрешает текущую аутентификацию в
@@ -21,9 +21,9 @@ composer require karelwintersky/arris.auth
 
 ## Схема БД
 
-`Auth` работает с таблицами `users`, `users_tokens`, `users_confirmations` и
-`users_resets`. `users_remembered` и `users_throttling` оставлены в схеме для
-совместимости с `arris.delight-php-auth`, но текущий код их не использует.
+`Auth` работает с таблицами `users`, `users_tokens`, `users_confirmations`,
+`users_resets` и `users_throttling`. `users_remembered` оставлена в схеме для
+совместимости с `arris.delight-php-auth`, но текущий код её не использует.
 
 ```sql
 CREATE TABLE `users_tokens` (
@@ -54,7 +54,7 @@ CREATE TABLE `users_tokens` (
 PHP Auth там колонка `user`. `users_confirmations` уже использует `user_id` и не
 переименовывается.
 
-Полный сценарий — в `_database/migrations/0.4.0.sql`. Ключевые команды:
+Полный сценарий — в `_database/migrations/from_delight_auth.sql`. Ключевые команды:
 
 ```sql
 -- Delight -> Arris.Auth
@@ -79,13 +79,13 @@ ALTER TABLE `users_resets`
     ADD KEY `token` (`token`);
 
 -- Остальное: properties, username index, InnoDB, users_tokens, sessions
--- выполняется из _database/migrations/0.4.0.sql
+-- выполняется из _database/migrations/from_delight_auth.sql
 ```
 
 Полный запуск:
 
 ```bash
-mysql -u app_user -p app_database < _database/migrations/0.4.0.sql
+mysql -u app_user -p app_database < _database/migrations/from_delight_auth.sql
 ```
 
 Что делает миграция:
@@ -242,11 +242,20 @@ cookie клиента и не удаляет чужую валидную стр�
 
 ### HTTPS и reverse proxy
 
-`setSessionCookie(['secure' => 'auto'])` (значение по умолчанию) включает `Secure`,
-если запрос пришёл по HTTPS напрямую, на порт 443 или с заголовком
-`X-Forwarded-Proto: https` / `X-Forwarded-SSL: on`. Если proxy не передаёт эти
-заголовки, задайте `secure => true` явно. `SameSite=None` требует `secure=true`;
-нарушение этого правила даёт `ConfigurationException`.
+HTTPS требуется по умолчанию. `Auth` бросает `ConfigurationException`, если запрос
+не HTTPS. Для локальной разработки/CLI это надо разрешить явно:
+
+```php
+$config->setAllowInsecureHttp(true);
+```
+
+`isHttps()` учитывает прямой HTTPS, порт 443, `X-Forwarded-Proto: https` и
+`X-Forwarded-SSL: on`. Proxy должен выставлять эти заголовки и не пропускать
+клиентские значения.
+
+`setSessionCookie(['secure' => 'auto'])` включает `Secure` для cookie. В production
+лучше задать `secure => true` явно. HSTS — на уровне сервера/приложения.
+`SameSite=None` требует `secure=true`.
 
 ### Сессия или bearer: что выбрать
 
@@ -365,10 +374,11 @@ $auth->logoutEverywhere($auth->id());
 Подтверждение включается в конфиге:
 
 ```php
+use Arris\Auth\DTO\UserConfirmationOptions;
 use Arris\Auth\Mailer\NativeMailer;
 
 $config = (new AuthConfig())
-    ->setUserConfirmationOptions(required: true, ttl: 3600)
+    ->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 3600))
     ->setMailer(new NativeMailer([
         'from' => 'noreply@example.com',
         'activation_subject' => 'Confirm your email',
@@ -385,31 +395,38 @@ $user = $auth->confirmUser($activationKey);
 // $user->isVerified() === true
 ```
 
-- `setUserConfirmationOptions(required: false)` — регистрация сразу ставит `verified = 1`.
-- `setUserConfirmationOptions(required: true)` — регистрация создаёт `verified = 0` и
+- `new UserConfirmationOptions(required: false)` — регистрация сразу ставит `verified = 1`.
+- `new UserConfirmationOptions(required: true)` — регистрация создаёт `verified = 0` и
   запись в `users_confirmations`, затем вызывает `MailerInterface::sendActivation()`.
-- Если мэйлер не задан, используется `NullMailer` (no-op, возвращает `true`).
+- `NativeMailer` — мэйлер по умолчанию. `NullMailer` можно задать явно для
+  тестов/dev: `->setMailer(new NullMailer())`.
 - Ошибка отправки письма не откатывает созданного пользователя.
 - `register(..., verified: true)` — админский обход confirmation.
 - `register(..., verified: false)` + `verifyUser($userId)` — двухшаговый админский путь.
 - `resendConfirmation($email)` возвращает `ConfirmationState` с причиной
-  (`sent`, `unknown_user`, `already_verified`, `not_required`, `mail_failed`).
+  (`sent`, `unknown_user`, `already_verified`, `not_required`, `mail_failed`,
+  `throttled`).
 - `deleteExpiredConfirmations()` удаляет истёкшие записи.
 
-`userConfirmationRequired = true` означает, что неверифицированный пользователь не
-может войти, даже если `requireVerified` был выключен.
+`UserConfirmationOptions` — immutable DTO: меняйте через `withRequired()` /
+`withTtl()` или создавайте новый объект.
+
+`required = true` означает, что неверифицированный пользователь не может войти,
+даже если `requireVerified` был выключен.
 
 ### Сброс пароля
 
 ```php
+use Arris\Auth\DTO\UserResetOptions;
+
 $config = (new AuthConfig())
-    ->setUserResetOptions(enabled: true, ttl: 3600, allowedAny: false)
-    ->setMailer(new NativeMailer());
+    ->setUserResetOptions(new UserResetOptions(enabled: true, ttl: 3600, allowedAny: false))
+    ->setMailer(new \Arris\Auth\Mailer\NativeMailer());
 
 $auth = new Auth($pdo, $config);
 
 $state = $auth->requestPasswordReset('user@example.com');
-// ResetState: sent | unknown_user | not_enabled | not_allowed | mail_failed
+// ResetState: sent | unknown_user | not_enabled | not_allowed | mail_failed | throttled
 
 $user = $auth->resetPassword($resetKey, 'new correct horse battery staple');
 $auth->deleteExpiredResets();
@@ -428,8 +445,66 @@ $auth->deleteExpiredResets();
 - ошибка отправки письма не откатывает созданный reset-код, но возвращает
   `mail_failed`.
 
-`null` в любом аргументе `setUserResetOptions()` оставляет текущее значение
-без изменений.
+`UserResetOptions` — immutable DTO: меняйте через `withEnabled()` / `withTtl()` /
+`withAllowedAny()`.
+
+### Логирование
+
+```php
+$config->setLogger($logger, debug: false);
+```
+
+- по умолчанию — `Psr\Log\NullLogger`;
+- `debug: true` разрешает логирование raw-токенов;
+- без debug токены не пишутся;
+- пароли не логируются никогда.
+
+### Throttling
+
+По умолчанию включён:
+
+```php
+use Arris\Auth\DTO\ThrottleRule;
+use Arris\Auth\DTO\ThrottlingOptions;
+
+$config->setThrottlingOptions(new ThrottlingOptions(
+    enabled: true,
+    login: new ThrottleRule(5, 900),
+    registration: new ThrottleRule(3, 3600),
+    reset: new ThrottleRule(3, 3600),
+    confirmation: new ThrottleRule(3, 3600),
+));
+```
+
+Лимиты:
+
+| Действие | По умолчанию |
+|---|---|
+| login | 5 / 15 минут |
+| registration | 3 / час |
+| password reset | 3 / час |
+| confirmation resend | 3 / час |
+
+При превышении login/registration бросается `TooManyRequestsException`, reset и
+confirmation возвращают `throttled` с `retryAfter`. Для тестов/dev можно явно
+отключить: `new ThrottlingOptions(enabled: false)`.
+
+### Валидаторы email и пароля
+
+Пакет проверяет только непустые значения. Формат email и политику пароля задаёт
+приложение:
+
+```php
+$config
+    ->setEMailValidator(static fn (string $email): bool =>
+        filter_var($email, FILTER_VALIDATE_EMAIL) !== false
+    )
+    ->setPasswordValidator(static fn (string $password): bool =>
+        strlen($password) >= 8
+    );
+```
+
+Если валидатор не задан, принимается любая непустая строка.
 
 ### Проверка авторизации в middleware
 
@@ -655,14 +730,16 @@ $auth->roleNamesForUser($userId);  // ['GAME_MASTER', ...]
 | `setTokenTtl()` | 30 дней | срок жизни bearer-токена; `0` — бессрочно; отрицательный TTL отклоняется |
 | `setRequireVerified()` | `true` | требовать `verified=1` для сессии, bearer, remember и выдачи токенов |
 | `setRejectNonNormalStatus()` | `true` | не пускать пользователей со статусом не `NORMAL` |
-| `setMinPasswordLength()` | `8` | минимальная длина пароля при регистрации/смене |
 | `setUpdateLastLogin()` | `true` | обновлять `users.last_login` |
 | `setTouchTokenInterval()` | `60` | как часто обновлять `last_used` токена; `0` — отключить |
 | `setAutoInitialize()` | `true` | разрешать текущую аутентификацию в конструкторе |
+| `setAllowInsecureHttp()` | `false` | явно разрешить работу без HTTPS |
 | `setRolesMap()` | `null` | карта `name => bit` для отображения ролей; `null` — базовая `Role::map()` |
-| `setUserConfirmationOptions(required: ?, ttl: ?)` | `required=false`, `ttl=3600` | параметры подтверждения email; `null` не меняет значение |
-| `setUserResetOptions(enabled: ?, ttl: ?, allowedAny: ?)` | `enabled=false`, `ttl=3600`, `allowedAny=false` | параметры сброса пароля; `null` не меняет значение |
-| `setMailer()` | `null` | `MailerInterface`; `null` — `NullMailer` |
+| `setUserConfirmationOptions()` | `new UserConfirmationOptions()` | DTO `required`, `ttl` |
+| `setUserResetOptions()` | `new UserResetOptions()` | DTO `enabled`, `ttl`, `allowedAny` |
+| `setThrottlingOptions()` | `enabled=true`, defaults 5/15м, 3/ч | DTO с `ThrottleRule` для login/registration/reset/confirmation |
+| `setMailer()` | `NativeMailer` | `MailerInterface`; `null` возвращает `NativeMailer` |
+| `setLogger()` | `NullLogger` | PSR-3 logger; второй аргумент `debug` разрешает raw-токены |
 
 `setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
 snake_case-имени из старого API. Внутри он вызывает те же типизированные сеттеры;
@@ -670,11 +747,14 @@ snake_case-имени из старого API. Внутри он вызывае�
 PHP-тип значения — `TypeError`. Карта ролей задаётся ключом `roles_map`,
 confirmation — `user_confirmation_required` / `user_confirmation_ttl` (старый
 `confirmation_ttl` поддерживается как алиас), reset — `user_reset_enabled` /
-`user_reset_ttl` / `user_reset_allowed_any`, мэйлер — `mailer`.
+`user_reset_ttl` / `user_reset_allowed_any`, throttling — `throttling_options`,
+HTTPS — `allow_insecure_http`, мэйлер — `mailer`.
 
-Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()`,
-`getUserConfirmationRequired()`, `getUserConfirmationTtl()`,
-`getUserResetEnabled()`, `getUserResetTtl()`, `getUserResetAllowedAny()` и т.д.
+Опции confirmation/reset/throttling — immutable DTO:
+`UserConfirmationOptions`, `UserResetOptions`, `ThrottlingOptions` + `ThrottleRule`.
+Геттеры: `getUserConfirmationOptions()`, `getUserResetOptions()`,
+`getThrottlingOptions()`; поля читаются через `->required`, `->ttl`, `->enabled`,
+`->allowedAny`.
 
 ## Тесты
 
@@ -683,17 +763,18 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 121 тест, 346 assertions. Четыре MySQL-теста пропускаются, если
+Текущее состояние: 132 теста, 373 assertions. Четыре MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано
 
 Пакет остаётся MVP в части account lifecycle:
 
-- нет throttling / rate limiting / lockout;
-- кастомные `emailValidator` / `passwordValidator` в `AuthConfig` не вызываются;
-- таблица `users_throttling` не используется.
+- нет lockout после серии неудачных входов (есть только token-bucket throttling);
+- нет отдельного аудита/экспорта security-событий;
+- кастомные `emailValidator` / `passwordValidator` вызываются, но их качество —
+  ответственность приложения.
 
 Подтверждение email реализовано через `users_confirmations`, сброс пароля — через
-`users_resets`. Для production нужно задать реальный `MailerInterface`, иначе
-будет использован `NullMailer`.
+`users_resets`, throttling — через `users_throttling`. По умолчанию используется
+`NativeMailer`; `NullMailer` можно задать явно для тестов/dev.

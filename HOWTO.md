@@ -133,10 +133,11 @@ $auth->register(
 Пример с confirmation:
 
 ```php
+use Arris\Auth\DTO\UserConfirmationOptions;
 use Arris\Auth\Mailer\NativeMailer;
 
 $config = (new AuthConfig())
-    ->setUserConfirmationOptions(required: true, ttl: 3600)
+    ->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 3600))
     ->setMailer(new NativeMailer());
 
 $auth = new Auth($pdo, $config);
@@ -145,8 +146,8 @@ $user = $auth->register('user@example.com', 'correct horse battery staple', 'use
 // $user->isVerified() === false
 ```
 
-Если мэйлер не задан, используется `NullMailer` — регистрация успешна, но письмо
-фактически не отправляется. Для production задайте реальный `MailerInterface`.
+Мэйлер по умолчанию — `NativeMailer`. Для тестов/dev можно явно задать
+`NullMailer`; тогда регистрация успешна, но письмо фактически не отправляется.
 
 ---
 
@@ -200,12 +201,14 @@ try {
 Включение и параметры:
 
 ```php
+use Arris\Auth\DTO\UserResetOptions;
+
 $config
-    ->setUserResetOptions(
+    ->setUserResetOptions(new UserResetOptions(
         enabled: true,
         ttl: 3600,
         allowedAny: false,
-    )
+    ))
     ->setMailer($mailer);
 ```
 
@@ -674,15 +677,48 @@ echo $user->username;
 | Пользователь не найден | `UnknownUserException` |
 | Неверный/истёкший confirmation-токен | `InvalidConfirmationException` |
 | Неверный/истёкший reset-токен | `InvalidResetException` |
+| Превышен throttling | `TooManyRequestsException` |
 | Не авторизован там, где нужен пользователь | `NotLoggedInException` |
 | `login()` в режиме `token` | `ConfigurationException` |
 | Ошибки заголовков/cookie | `HeadersAlreadySentException` |
 | Общая база | `AuthException` |
 
-Чего в пакете пока нет: throttling (`TooManyRequestsException`), callback
-`onBeforeSuccess` (`AttemptCancelledException`). Эти сценарии приложение реализует
-поверх `register()`, `confirmUser()`, `verifyUser()`, `requestPasswordReset()`,
-`changePassword()` и своих таблиц/лимитеров.
+Чего в пакете пока нет: callback `onBeforeSuccess` (`AttemptCancelledException`)
+и отдельного lockout после серии неудачных входов. Эти сценарии приложение
+реализует поверх `register()`, `confirmUser()`, `verifyUser()`,
+`requestPasswordReset()`, `changePassword()` и своих лимитеров.
+
+### Валидаторы
+
+Пакет проверяет только непустые email/пароль. Всё остальное — callback:
+
+```php
+$config
+    ->setEMailValidator(static fn (string $email): bool =>
+        filter_var($email, FILTER_VALIDATE_EMAIL) !== false
+    )
+    ->setPasswordValidator(static fn (string $password): bool =>
+        strlen($password) >= 8
+    );
+```
+
+### Throttling
+
+```php
+use Arris\Auth\DTO\ThrottleRule;
+use Arris\Auth\DTO\ThrottlingOptions;
+
+$config->setThrottlingOptions(new ThrottlingOptions(
+    enabled: true,
+    login: new ThrottleRule(5, 900),
+    registration: new ThrottleRule(3, 3600),
+    reset: new ThrottleRule(3, 3600),
+    confirmation: new ThrottleRule(3, 3600),
+));
+```
+
+При превышении login/registration — `TooManyRequestsException`; reset/confirmation
+возвращают `throttled`.
 
 ---
 
@@ -698,8 +734,8 @@ echo $user->username;
   сервер уже хранит хэш.
 - **Забыть `setRejectNonNormalStatus(false)`**, если нужно пускать `BANNED`/`LOCKED`
   пользователей — по умолчанию они не пускаются.
-- **Забыть `setUserConfirmationOptions(required: false)`**, если регистрация должна сразу
-  ставить `verified = 1`. При `true` пользователь остаётся неверифицированным до
-  `confirmUser()` / `verifyUser()`.
+- **Забыть `UserConfirmationOptions(required: false)`**, если регистрация должна
+  сразу ставить `verified = 1`. При `true` пользователь остаётся неверифицированным
+  до `confirmUser()` / `verifyUser()`.
 - **Ожидать письмо без настроенного мэйлера** — по умолчанию используется
-  `NullMailer`, который ничего не отправляет.
+  `NativeMailer` (`mail()`); для тестов/dev можно явно поставить `NullMailer`.
