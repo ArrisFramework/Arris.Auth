@@ -27,6 +27,10 @@ ALTER TABLE `users_resets`
     DROP INDEX `user_expires`,
     ADD KEY `user_expires` (`user_id`, `expires`);
 
+-- Token-only confirmation lookup.
+ALTER TABLE `users_confirmations`
+    ADD KEY `token` (`token`);
+
 -- 3. Transactional storage for auth mutations.
 ALTER TABLE `users` ENGINE=InnoDB;
 ALTER TABLE `users_confirmations` ENGINE=InnoDB;

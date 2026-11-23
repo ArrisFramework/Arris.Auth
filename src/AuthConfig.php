@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Arris\Auth;
 
 use Arris\Auth\Exception\ConfigurationException;
+use Arris\Auth\Mailer\MailerInterface;
 use SessionHandlerInterface;
 
 class AuthConfig
@@ -30,6 +31,10 @@ class AuthConfig
 
     /** @var array<string, int>|null */
     private ?array $rolesMap = null;
+
+    private bool $userConfirmationRequired = false;
+    private int $confirmationTtl = 3600;
+    private ?MailerInterface $mailer = null;
 
     /**
      * Custom E-Mail validator callback
@@ -546,6 +551,78 @@ class AuthConfig
     }
 
     /**
+     * Returns whether registration requires email confirmation.
+     *
+     * Возвращает, требуется ли подтверждение email при регистрации.
+     */
+    public function getUserConfirmationRequired(): bool
+    {
+        return $this->userConfirmationRequired;
+    }
+
+    /**
+     * Enables or disables email confirmation for new registrations.
+     *
+     * Включает или отключает подтверждение email для новых регистраций.
+     */
+    public function setUserConfirmationRequired(bool $required): self
+    {
+        $this->userConfirmationRequired = $required;
+
+        return $this;
+    }
+
+    /**
+     * Returns the confirmation token lifetime in seconds.
+     *
+     * Возвращает время жизни confirmation-токена в секундах.
+     */
+    public function getConfirmationTtl(): int
+    {
+        return $this->confirmationTtl;
+    }
+
+    /**
+     * Sets the confirmation token lifetime in seconds.
+     *
+     * Устанавливает время жизни confirmation-токена в секундах.
+     *
+     * @throws ConfigurationException
+     */
+    public function setConfirmationTtl(int $seconds): self
+    {
+        if ($seconds <= 0) {
+            throw new ConfigurationException('Confirmation TTL must be positive');
+        }
+
+        $this->confirmationTtl = $seconds;
+
+        return $this;
+    }
+
+    /**
+     * Returns the configured mailer, or null to use NullMailer.
+     *
+     * Возвращает настроенный мэйлер или null для использования NullMailer.
+     */
+    public function getMailer(): ?MailerInterface
+    {
+        return $this->mailer;
+    }
+
+    /**
+     * Sets the mailer used for activation and password reset emails.
+     *
+     * Устанавливает мэйлер для писем активации и сброса пароля.
+     */
+    public function setMailer(?MailerInterface $mailer): self
+    {
+        $this->mailer = $mailer;
+
+        return $this;
+    }
+
+    /**
      * Sets an option by its snake_case name.
      * This is a fallback for configuration hydration; typed setters are preferred.
      *
@@ -574,6 +651,9 @@ class AuthConfig
             'touch_token_interval' => $this->setTouchTokenInterval($value),
             'auto_initialize' => $this->setAutoInitialize($value),
             'roles_map' => $this->setRolesMap($value),
+            'user_confirmation_required' => $this->setUserConfirmationRequired($value),
+            'confirmation_ttl' => $this->setConfirmationTtl($value),
+            'mailer' => $this->setMailer($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };
     }

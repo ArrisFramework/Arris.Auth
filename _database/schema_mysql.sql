@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS `users_confirmations` (
     `expires` int(10) unsigned NOT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `selector` (`selector`),
+    KEY `token` (`token`),
     KEY `email_expires` (`email`,`expires`),
     KEY `user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

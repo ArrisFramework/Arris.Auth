@@ -7,6 +7,7 @@ namespace Tests;
 use Arris\Auth\Auth;
 use Arris\Auth\AuthConfig;
 use Arris\Auth\Exception\ConfigurationException;
+use Arris\Auth\Mailer\NullMailer;
 use Arris\Auth\Role;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -34,6 +35,9 @@ final class AuthConfigTest extends TestCase
         self::assertSame(60, $config->getTouchTokenInterval());
         self::assertTrue($config->getAutoInitialize());
         self::assertNull($config->getRolesMap());
+        self::assertFalse($config->getUserConfirmationRequired());
+        self::assertSame(3600, $config->getConfirmationTtl());
+        self::assertNull($config->getMailer());
     }
 
     public function testRolesMapDefaultsToNullAndCanBeReset(): void
@@ -76,6 +80,7 @@ final class AuthConfigTest extends TestCase
     public function testFluentSetters(): void
     {
         $handler = $this->handler();
+        $mailer = new NullMailer();
 
         $config = (new AuthConfig())
             ->setMode(Auth::MODE_TOKEN)
@@ -92,7 +97,10 @@ final class AuthConfigTest extends TestCase
             ->setMinPasswordLength(12)
             ->setUpdateLastLogin(false)
             ->setTouchTokenInterval(0)
-            ->setAutoInitialize(false);
+            ->setAutoInitialize(false)
+            ->setUserConfirmationRequired(true)
+            ->setConfirmationTtl(120)
+            ->setMailer($mailer);
 
         self::assertSame(Auth::MODE_TOKEN, $config->getMode());
         self::assertSame('app_', $config->getTablePrefix());
@@ -109,11 +117,15 @@ final class AuthConfigTest extends TestCase
         self::assertFalse($config->getUpdateLastLogin());
         self::assertSame(0, $config->getTouchTokenInterval());
         self::assertFalse($config->getAutoInitialize());
+        self::assertTrue($config->getUserConfirmationRequired());
+        self::assertSame(120, $config->getConfirmationTtl());
+        self::assertSame($mailer, $config->getMailer());
     }
 
     public function testSetOptionDispatchesToTypedSetters(): void
     {
         $rolesMap = ['GM' => Role::ADMIN];
+        $mailer = new NullMailer();
 
         $config = (new AuthConfig())
             ->setOption('mode', Auth::MODE_SESSION)
@@ -121,7 +133,10 @@ final class AuthConfigTest extends TestCase
             ->setOption('token_ttl', 0)
             ->setOption('min_password_length', 10)
             ->setOption('auto_initialize', false)
-            ->setOption('roles_map', $rolesMap);
+            ->setOption('roles_map', $rolesMap)
+            ->setOption('user_confirmation_required', true)
+            ->setOption('confirmation_ttl', 120)
+            ->setOption('mailer', $mailer);
 
         self::assertSame(Auth::MODE_SESSION, $config->getMode());
         self::assertSame('app_session', $config->getSessionName());
@@ -129,6 +144,9 @@ final class AuthConfigTest extends TestCase
         self::assertSame(10, $config->getMinPasswordLength());
         self::assertFalse($config->getAutoInitialize());
         self::assertSame($rolesMap, $config->getRolesMap());
+        self::assertTrue($config->getUserConfirmationRequired());
+        self::assertSame(120, $config->getConfirmationTtl());
+        self::assertSame($mailer, $config->getMailer());
     }
 
     public function testInvalidModeIsRejected(): void
@@ -208,6 +226,13 @@ final class AuthConfigTest extends TestCase
         $this->expectException(ConfigurationException::class);
 
         (new AuthConfig())->setTokenTtl(-1);
+    }
+
+    public function testNonPositiveConfirmationTtlIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setConfirmationTtl(0);
     }
 
     public function testAuthUsesDefaultConfigWhenNullIsPassed(): void
