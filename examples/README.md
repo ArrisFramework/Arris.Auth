@@ -93,6 +93,6 @@ curl -s -X POST http://localhost:8080/api/logout \
   `password_verify()`, потому что в `Auth` пока нет отдельного метода
   «проверить credentials и выдать токен»;
 - CSRF-защита — double-submit cookie без подписи;
-- нет подтверждения email, сброса пароля, throttling и rate limiting;
+- демо не включает подтверждение email, сброс пароля, throttling и rate limiting;
 - SQLite-схема урезана до таблиц, которые нужны демо, и лежит в
   `_database/schema_sqlite.sql`.

@@ -1,7 +1,8 @@
 # HOWTO — типичные сценарии Arris.Auth
 
 Практические рецепты для `karelwintersky/arris.auth`. Предполагается, что таблицы
-`users` и `users_tokens` уже созданы по `_database/schema_mysql.sql`.
+`users`, `users_tokens` и `users_confirmations` уже созданы по
+`_database/schema_mysql.sql`.
 
 ## 0. Базовая инициализация
 
@@ -86,16 +87,18 @@ use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Exception\AuthException;
 
 try {
-    $userId = $auth->register(
+    $user = $auth->register(
         email: 'user@example.com',
         password: 'correct horse battery staple',
         username: 'user',
     );
 
-    // По умолчанию verified = true, пользователь может логиниться сразу.
-    $auth->login('user@example.com', 'correct horse battery staple');
-
-    echo 'Зарегистрирован и залогинен';
+    if ($user->isVerified()) {
+        $auth->login('user@example.com', 'correct horse battery staple');
+        echo 'Зарегистрирован и залогинен';
+    } else {
+        echo 'Зарегистрирован, ожидает подтверждения email';
+    }
 } catch (InvalidEmailException $e) {
     echo 'Некорректный email';
 } catch (InvalidPasswordException $e) {
@@ -114,24 +117,70 @@ $auth->register(
     string $email,
     string $password,
     ?string $username = null,
-    bool $verified = true,
+    ?bool $verified = null,
     int $rolesMask = 0,
-): int;
+): \Arris\Auth\DTO\User;
 ```
 
-Если нужна активация через email, регистрируйте с `verified: false`:
+Поведение зависит от `AuthConfig::setUserConfirmationRequired()`:
+
+- `false` (по умолчанию) — `verified = 1`, пользователь может логиниться сразу;
+- `true` — `verified = 0`, создаётся запись в `users_confirmations` и вызывается
+  `MailerInterface::sendActivation()`;
+- `verified: true` — админский обход confirmation;
+- `verified: false` — принудительно неверифицированный пользователь.
+
+Пример с confirmation:
 
 ```php
-$userId = $auth->register('user@example.com', 'correct horse battery staple', 'user', verified: false);
+use Arris\Auth\Mailer\NativeMailer;
+
+$config = (new AuthConfig())
+    ->setUserConfirmationRequired(true)
+    ->setConfirmationTtl(3600)
+    ->setMailer(new NativeMailer());
+
+$auth = new Auth($pdo, $config);
+
+$user = $auth->register('user@example.com', 'correct horse battery staple', 'user');
+// $user->isVerified() === false
 ```
 
-Сам пакет **не отправляет письма** и не создаёт confirmation-токены. Если нужен
-процесс «письмо со ссылкой», приложение само сохраняет токен (например, в
-`users_confirmations` или своей таблице), проверяет его и вызывает `verifyUser()`.
+Если мэйлер не задан, используется `NullMailer` — регистрация успешна, но письмо
+фактически не отправляется. Для production задайте реальный `MailerInterface`.
 
 ---
 
 ## 3. Активация пользователя
+
+Пользователь подтверждает email токеном из письма:
+
+```php
+use Arris\Auth\Exception\InvalidConfirmationException;
+
+try {
+    $user = $auth->confirmUser($activationKey);
+    echo 'Email подтверждён: ' . $user->email;
+} catch (InvalidConfirmationException $e) {
+    echo 'Ссылка недействительна или истекла';
+}
+```
+
+`confirmUser()` сам проверяет срок действия, ставит `verified = 1`, удаляет
+confirmation-записи и возвращает `User`.
+
+Повторная отправка письма:
+
+```php
+$state = $auth->resendConfirmation('user@example.com');
+
+if ($state->isSent()) {
+    echo 'Письмо отправлено';
+}
+// reason: sent | unknown_user | already_verified | not_required | mail_failed
+```
+
+Админское подтверждение без токена:
 
 ```php
 use Arris\Auth\Exception\UnknownUserException;
@@ -143,17 +192,7 @@ try {
 }
 ```
 
-После этого `verified = 1`, и при `setRequireVerified(true)` пользователь может войти.
-
-Пример обработчика ссылки активации:
-
-```php
-// $token — из письма, проверен приложением
-$userId = /* найти userId по confirmation-токену */;
-
-$auth->verifyUser($userId);
-$auth->login($email, $password); // если хотим сразу залогинить
-```
+После этого `verified = 1`, и пользователь может войти.
 
 ---
 
@@ -249,22 +288,24 @@ $auth->logoutEverywhere($userId);
 ```php
 use Arris\Auth\Role;
 
-$userId = $auth->register(
+$user = $auth->register(
     email: 'manager@example.com',
     password: 'temporary password',
     username: 'manager',
-    verified: true,                         // сразу активен
+    verified: true,                         // админский обход confirmation
     rolesMask: Role::MANAGER | Role::EDITOR, // начальные роли
 );
+
+$userId = $user->id;
 ```
 
-Либо создать пустого пользователя и выдать роли отдельно:
+Либо создать неверифицированного пользователя и подтвердить его отдельно:
 
 ```php
-$userId = $auth->register('manager@example.com', 'temporary password', 'manager', verified: true);
-
-$auth->addRole($userId, Role::MANAGER);
-$auth->addRole($userId, Role::EDITOR);
+$user = $auth->register('manager@example.com', 'temporary password', 'manager', verified: false);
+$auth->verifyUser($user->id);
+$auth->addRole($user->id, Role::MANAGER);
+$auth->addRole($user->id, Role::EDITOR);
 ```
 
 Установить роли целиком:
@@ -579,15 +620,16 @@ echo $user->username;
 | Email не подтверждён | `EmailNotVerifiedException` |
 | Аккаунт не в статусе `NORMAL` | `AccountDisabledException` |
 | Пользователь не найден | `UnknownUserException` |
+| Неверный/истёкший confirmation-токен | `InvalidConfirmationException` |
 | Не авторизован там, где нужен пользователь | `NotLoggedInException` |
 | `login()` в режиме `token` | `ConfigurationException` |
 | Ошибки заголовков/cookie | `HeadersAlreadySentException` |
 | Общая база | `AuthException` |
 
-Чего в пакете пока нет: throttling (`TooManyRequestsException`), подтверждение email,
-сброс пароля, callback `onBeforeSuccess` (`AttemptCancelledException`). Эти сценарии
-приложение реализует поверх `register()`, `verifyUser()`, `changePassword()` и своих
-таблиц/лимитеров.
+Чего в пакете пока нет: throttling (`TooManyRequestsException`), готового сценария
+сброса пароля, callback `onBeforeSuccess` (`AttemptCancelledException`). Эти сценарии
+приложение реализует поверх `register()`, `confirmUser()`, `verifyUser()`,
+`changePassword()` и своих таблиц/лимитеров.
 
 ---
 
@@ -603,5 +645,8 @@ echo $user->username;
   сервер уже хранит хэш.
 - **Забыть `setRejectNonNormalStatus(false)`**, если нужно пускать `BANNED`/`LOCKED`
   пользователей — по умолчанию они не пускаются.
-- **Забыть `setRequireVerified(false)`**, если регистрация идёт с `verified: false`,
-  а логин должен работать до подтверждения email.
+- **Забыть `setUserConfirmationRequired(false)`**, если регистрация должна сразу
+  ставить `verified = 1`. При `true` пользователь остаётся неверифицированным до
+  `confirmUser()` / `verifyUser()`.
+- **Ожидать письмо без настроенного мэйлера** — по умолчанию используется
+  `NullMailer`, который ничего не отправляет.

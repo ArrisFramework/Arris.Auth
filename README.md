@@ -21,10 +21,9 @@ composer require karelwintersky/arris.auth
 
 ## Схема БД
 
-`Auth` работает с таблицами `users` и `users_tokens`. Остальные таблицы
-(`users_confirmations`, `users_remembered`, `users_resets`, `users_throttling`)
-оставлены в схеме для совместимости с `arris.delight-php-auth`, но текущий код их
-не использует.
+`Auth` работает с таблицами `users`, `users_tokens` и `users_confirmations`.
+`users_remembered`, `users_resets`, `users_throttling` оставлены в схеме для
+совместимости с `arris.delight-php-auth`, но текущий код их не использует.
 
 ```sql
 CREATE TABLE `users_tokens` (
@@ -73,6 +72,9 @@ ALTER TABLE `users_resets`
     DROP INDEX `user_expires`,
     ADD KEY `user_expires` (`user_id`, `expires`);
 
+ALTER TABLE `users_confirmations`
+    ADD KEY `token` (`token`);
+
 -- Остальное: properties, username index, InnoDB, users_tokens, sessions
 -- выполняется из _database/migrations/0.4.0.sql
 ```
@@ -87,6 +89,7 @@ mysql -u app_user -p app_database < _database/migrations/0.4.0.sql
 
 - добавляет `users.properties` и `KEY username (username)`;
 - переименовывает `user` → `user_id` в `users_remembered` и `users_resets`;
+- добавляет `KEY token (token)` в `users_confirmations`;
 - переводит таблицы `users*` в InnoDB;
 - создаёт `users_tokens` (с `force_logout` и индексами) и опциональную `sessions`.
 
@@ -99,7 +102,9 @@ cookie-сессия на `users`. Если полная миграция не н
 Старые remember-cookie из `users_remembered` в `users_tokens` не переносятся:
 пользователи после миграции один раз войдут заново. Старые строки `users_tokens`
 получат `force_logout = 0`; если у пользователя `users.force_logout > 0`, его
-старые токены будут отклонены. Это безопасный fail-closed вариант.
+старые токены будут отклонены. Это безопасный fail-closed вариант. Старые
+pending-подтверждения в `users_confirmations` лучше перевыпустить через
+`resendConfirmation()`.
 
 ### Обратная миграция на Delight PHP Auth
 
@@ -124,6 +129,8 @@ ALTER TABLE `users_resets`
     CHANGE COLUMN `user_id` `user` int(10) unsigned NOT NULL;
 ALTER TABLE `users_resets`
     ADD KEY `user_expires` (`user`, `expires`);
+
+ALTER TABLE `users_confirmations` DROP INDEX `token`;
 
 -- 3. Убрать поля/индексы, которых нет в Delight.
 ALTER TABLE `users` DROP INDEX `username`;
@@ -332,7 +339,7 @@ $config = (new AuthConfig())
 $auth = new Auth($pdo, $config);
 
 try {
-    $id = $auth->register('user@example.com', 'correct horse battery staple', 'user');
+    $registered = $auth->register('user@example.com', 'correct horse battery staple', 'user');
     $user = $auth->login('user@example.com', 'correct horse battery staple', remember: true);
 } catch (AuthException $e) {
     // InvalidCredentialsException, EmailNotVerifiedException, AccountDisabledException, ...
@@ -347,6 +354,46 @@ if ($auth->check()) {
 $auth->logout();
 $auth->logoutEverywhere($auth->id());
 ```
+
+### Подтверждение email
+
+Подтверждение включается в конфиге:
+
+```php
+use Arris\Auth\Mailer\NativeMailer;
+
+$config = (new AuthConfig())
+    ->setUserConfirmationRequired(true)
+    ->setConfirmationTtl(3600)
+    ->setMailer(new NativeMailer([
+        'from' => 'noreply@example.com',
+        'activation_subject' => 'Confirm your email',
+        'activation_body' => 'Activation key: {activation_key}',
+    ]));
+
+$auth = new Auth($pdo, $config);
+
+$user = $auth->register('user@example.com', 'correct horse battery staple');
+// $user->isVerified() === false
+
+// приложение получает activation key из письма и вызывает:
+$user = $auth->confirmUser($activationKey);
+// $user->isVerified() === true
+```
+
+- `setUserConfirmationRequired(false)` — регистрация сразу ставит `verified = 1`.
+- `setUserConfirmationRequired(true)` — регистрация создаёт `verified = 0` и
+  запись в `users_confirmations`, затем вызывает `MailerInterface::sendActivation()`.
+- Если мэйлер не задан, используется `NullMailer` (no-op, возвращает `true`).
+- Ошибка отправки письма не откатывает созданного пользователя.
+- `register(..., verified: true)` — админский обход confirmation.
+- `register(..., verified: false)` + `verifyUser($userId)` — двухшаговый админский путь.
+- `resendConfirmation($email)` возвращает `ConfirmationState` с причиной
+  (`sent`, `unknown_user`, `already_verified`, `not_required`, `mail_failed`).
+- `deleteExpiredConfirmations()` удаляет истёкшие записи.
+
+`userConfirmationRequired = true` означает, что неверифицированный пользователь не
+может войти, даже если `requireVerified` был выключен.
 
 ### Проверка авторизации в middleware
 
@@ -439,8 +486,11 @@ php -S localhost:8080 -t examples/public examples/public/router.php
 ## API
 
 ```php
-$auth->register(string $email, string $password, ?string $username = null, bool $verified = true, int $rolesMask = 0): int;
+$auth->register(string $email, string $password, ?string $username = null, ?bool $verified = null, int $rolesMask = 0): User;
 $auth->verifyUser(int $userId): void;
+$auth->confirmUser(string $activationKey): User;
+$auth->resendConfirmation(string $email): ConfirmationState;
+$auth->deleteExpiredConfirmations(): int;
 
 $auth->login(string $email, string $password, bool $remember = false): User;
 $auth->loginWithUsername(string $username, string $password, bool $remember = false): User;
@@ -490,6 +540,9 @@ $auth->pdo(): PDO;
 `Arris\Auth\DTO\User` — readonly-объект: `id`, `email`, `username`, `status`, `verified`, `resettable`,
 `rolesMask`, `registered`, `lastLogin`, `forceLogout`, `properties`, плюс `isNormal()`,
 `isBanned()`, `hasRole()`, `roleNames()`, `toArray()`.
+
+`Arris\Auth\DTO\ConfirmationState` — результат `resendConfirmation()`: `sent`, `reason`
+(`sent`, `unknown_user`, `already_verified`, `not_required`, `mail_failed`) и `isSent()`.
 
 Значения ролей совместимы с `arris.delight-php-auth`: `Arris\Auth\Role` — не final,
 его можно расширить в приложении. `Arris\Auth\DTO\Status` — backed enum; для записи в БД
@@ -564,11 +617,15 @@ $auth->roleNamesForUser($userId);  // ['GAME_MASTER', ...]
 | `setTouchTokenInterval()` | `60` | как часто обновлять `last_used` токена; `0` — отключить |
 | `setAutoInitialize()` | `true` | разрешать текущую аутентификацию в конструкторе |
 | `setRolesMap()` | `null` | карта `name => bit` для отображения ролей; `null` — базовая `Role::map()` |
+| `setUserConfirmationRequired()` | `false` | требовать подтверждение email при регистрации |
+| `setConfirmationTtl()` | `3600` | время жизни confirmation-токена в секундах |
+| `setMailer()` | `null` | `MailerInterface`; `null` — `NullMailer` |
 
 `setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
 snake_case-имени из старого API. Внутри он вызывает те же типизированные сеттеры;
 неизвестный ключ или неверное значение дают `ConfigurationException`, а неверный
-PHP-тип значения — `TypeError`. Карта ролей задаётся ключом `roles_map`.
+PHP-тип значения — `TypeError`. Карта ролей задаётся ключом `roles_map`,
+confirmation — `user_confirmation_required` / `confirmation_ttl`, мэйлер — `mailer`.
 
 Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()` и т.д.
 
@@ -579,7 +636,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 94 теста, 245 assertions. Два MySQL-теста пропускаются, если
+Текущее состояние: 109 тестов, 295 assertions. Три MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано
@@ -587,11 +644,10 @@ vendor/bin/phpunit
 Пакет остаётся MVP в части account lifecycle:
 
 - нет throttling / rate limiting / lockout;
-- нет подтверждения email и сброса пароля;
-- `MailerInterface` / `NativeMailer` — заготовки; `sendPasswordReset()` и
-  `sendActivation()` пока ничего не отправляют;
+- нет готового сценария сброса пароля; `NativeMailer::sendPasswordReset()` умеет
+  отправлять письмо, но `users_resets` и API reset-flow ещё не реализованы;
 - кастомные `emailValidator` / `passwordValidator` в `AuthConfig` не вызываются;
-- таблицы `users_confirmations`, `users_resets`, `users_throttling` не используются.
+- таблицы `users_resets`, `users_throttling` не используются.
 
-Эти сценарии приложение реализует поверх `register()`, `verifyUser()`,
-`changePassword()` и своих лимитеров/мейлера.
+Подтверждение email реализовано через `users_confirmations`; для production
+нужно задать реальный `MailerInterface`, иначе будет использован `NullMailer`.
