@@ -195,20 +195,56 @@ try {
 
 ---
 
-### Настройка сброса пароля
+### Сброс пароля
 
-Сам reset-flow пока не реализован, но конфигурация уже доступна:
+Включение и параметры:
 
 ```php
-$config->setUserResetOptions(
-    enabled: true,
-    ttl: 3600,
-    allowedAny: false,
-);
+$config
+    ->setUserResetOptions(
+        enabled: true,
+        ttl: 3600,
+        allowedAny: false,
+    )
+    ->setMailer($mailer);
 ```
+
+Запрос письма:
+
+```php
+use Arris\Auth\DTO\ResetState;
+
+$state = $auth->requestPasswordReset('user@example.com');
+
+if ($state->isSent()) {
+    echo 'Письмо отправлено';
+}
+// reason: sent | unknown_user | not_enabled | not_allowed | mail_failed
+```
+
+Сброс по коду из письма:
+
+```php
+use Arris\Auth\Exception\InvalidResetException;
+
+try {
+    $user = $auth->resetPassword($resetKey, 'new correct horse battery staple');
+} catch (InvalidResetException $e) {
+    echo 'Код недействителен или истёк';
+}
+```
+
+`resetPassword()` меняет пароль, увеличивает `force_logout`, удаляет все reset-коды
+и все bearer/remember-токены пользователя.
 
 `allowedAny = true` разрешает использовать любой неистёкший reset-код, а не только
 последний. `null` в аргументе оставляет текущее значение.
+
+Очистка истёкших кодов:
+
+```php
+$auth->deleteExpiredResets();
+```
 
 ---
 
@@ -507,11 +543,11 @@ try {
 
 - удаляет строку из `users`;
 - удаляет все строки пользователя из `users_tokens` (bearer и remember);
+- удаляет confirmation- и reset-строки пользователя;
 - если удаляется текущий пользователь — очищает сессию, remember-cookie и регенерирует ID.
 
-Пакет не каскадирует прикладные таблицы (`users_confirmations`, `users_resets`,
-`users_throttling`, ваши собственные). Если они используются — удалите связанные
-строки сами или настройте `ON DELETE CASCADE` во внешних ключах.
+Пакет не каскадирует `users_throttling` и прикладные таблицы. Если они используются —
+удалите связанные строки сами или настройте `ON DELETE CASCADE` во внешних ключах.
 
 ---
 
@@ -637,14 +673,15 @@ echo $user->username;
 | Аккаунт не в статусе `NORMAL` | `AccountDisabledException` |
 | Пользователь не найден | `UnknownUserException` |
 | Неверный/истёкший confirmation-токен | `InvalidConfirmationException` |
+| Неверный/истёкший reset-токен | `InvalidResetException` |
 | Не авторизован там, где нужен пользователь | `NotLoggedInException` |
 | `login()` в режиме `token` | `ConfigurationException` |
 | Ошибки заголовков/cookie | `HeadersAlreadySentException` |
 | Общая база | `AuthException` |
 
-Чего в пакете пока нет: throttling (`TooManyRequestsException`), готового сценария
-сброса пароля, callback `onBeforeSuccess` (`AttemptCancelledException`). Эти сценарии
-приложение реализует поверх `register()`, `confirmUser()`, `verifyUser()`,
+Чего в пакете пока нет: throttling (`TooManyRequestsException`), callback
+`onBeforeSuccess` (`AttemptCancelledException`). Эти сценарии приложение реализует
+поверх `register()`, `confirmUser()`, `verifyUser()`, `requestPasswordReset()`,
 `changePassword()` и своих таблиц/лимитеров.
 
 ---

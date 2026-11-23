@@ -7,11 +7,12 @@
 
 The migration renames `user` to `user_id` in `users_remembered` and `users_resets`,
 adds `users.properties` and `users.username`, converts the `users*` tables to InnoDB,
-adds the `users_confirmations.token` index, and creates `users_tokens` and optional
-`sessions`.
+adds token indexes to `users_confirmations` and `users_resets`, and creates
+`users_tokens` and optional `sessions`.
 
 `users_tokens` is required for bearer and remember-me authentication.
-`users_confirmations` is used when `AuthConfig::setUserConfirmationRequired(true)`.
+`users_confirmations` is used when `AuthConfig::setUserConfirmationOptions(required: true)`
+and `users_resets` when `setUserResetOptions(enabled: true)`.
 Basic cookie-session authentication only needs `users`.
 
 Forward and reverse migration commands are documented in the main `README.md`

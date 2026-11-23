@@ -21,8 +21,8 @@ composer require karelwintersky/arris.auth
 
 ## Схема БД
 
-`Auth` работает с таблицами `users`, `users_tokens` и `users_confirmations`.
-`users_remembered`, `users_resets`, `users_throttling` оставлены в схеме для
+`Auth` работает с таблицами `users`, `users_tokens`, `users_confirmations` и
+`users_resets`. `users_remembered` и `users_throttling` оставлены в схеме для
 совместимости с `arris.delight-php-auth`, но текущий код их не использует.
 
 ```sql
@@ -75,6 +75,9 @@ ALTER TABLE `users_resets`
 ALTER TABLE `users_confirmations`
     ADD KEY `token` (`token`);
 
+ALTER TABLE `users_resets`
+    ADD KEY `token` (`token`);
+
 -- Остальное: properties, username index, InnoDB, users_tokens, sessions
 -- выполняется из _database/migrations/0.4.0.sql
 ```
@@ -89,7 +92,7 @@ mysql -u app_user -p app_database < _database/migrations/0.4.0.sql
 
 - добавляет `users.properties` и `KEY username (username)`;
 - переименовывает `user` → `user_id` в `users_remembered` и `users_resets`;
-- добавляет `KEY token (token)` в `users_confirmations`;
+- добавляет `KEY token (token)` в `users_confirmations` и `users_resets`;
 - переводит таблицы `users*` в InnoDB;
 - создаёт `users_tokens` (с `force_logout` и индексами) и опциональную `sessions`.
 
@@ -104,7 +107,7 @@ cookie-сессия на `users`. Если полная миграция не н
 получат `force_logout = 0`; если у пользователя `users.force_logout > 0`, его
 старые токены будут отклонены. Это безопасный fail-closed вариант. Старые
 pending-подтверждения в `users_confirmations` лучше перевыпустить через
-`resendConfirmation()`.
+`resendConfirmation()`, а старые reset-коды — через `requestPasswordReset()`.
 
 ### Обратная миграция на Delight PHP Auth
 
@@ -131,6 +134,8 @@ ALTER TABLE `users_resets`
     ADD KEY `user_expires` (`user`, `expires`);
 
 ALTER TABLE `users_confirmations` DROP INDEX `token`;
+
+ALTER TABLE `users_resets` DROP INDEX `token`;
 
 -- 3. Убрать поля/индексы, которых нет в Delight.
 ALTER TABLE `users` DROP INDEX `username`;
@@ -394,26 +399,37 @@ $user = $auth->confirmUser($activationKey);
 `userConfirmationRequired = true` означает, что неверифицированный пользователь не
 может войти, даже если `requireVerified` был выключен.
 
-### Сброс пароля: конфигурация
-
-Настройки reset-flow уже есть, сам сценарий `requestPasswordReset()` /
-`resetPassword()` пока не реализован:
+### Сброс пароля
 
 ```php
-$config->setUserResetOptions(
-    enabled: true,
-    ttl: 3600,
-    allowedAny: false,
-);
+$config = (new AuthConfig())
+    ->setUserResetOptions(enabled: true, ttl: 3600, allowedAny: false)
+    ->setMailer(new NativeMailer());
+
+$auth = new Auth($pdo, $config);
+
+$state = $auth->requestPasswordReset('user@example.com');
+// ResetState: sent | unknown_user | not_enabled | not_allowed | mail_failed
+
+$user = $auth->resetPassword($resetKey, 'new correct horse battery staple');
+$auth->deleteExpiredResets();
 ```
 
 - `enabled` — разрешён ли сброс пароля;
 - `ttl` — время жизни reset-кода;
 - `allowedAny` — принимать любой неистёкший код, а не только последний.
   При `false` новый запрос инвалидирует старые коды; при `true` старые коды
-  остаются рабочими до истечения TTL.
+  остаются рабочими до истечения TTL;
+- `requestPasswordReset()` уважает `users.resettable`; при `resettable = 0`
+  возвращает `not_allowed`;
+- `resetPassword()` меняет пароль, увеличивает `force_logout`, удаляет все
+  reset-коды и все bearer/remember-токены пользователя;
+- старые reset-коды после успешного сброса недействительны всегда;
+- ошибка отправки письма не откатывает созданный reset-код, но возвращает
+  `mail_failed`.
 
-`null` в любом аргументе оставляет текущее значение без изменений.
+`null` в любом аргументе `setUserResetOptions()` оставляет текущее значение
+без изменений.
 
 ### Проверка авторизации в middleware
 
@@ -512,6 +528,10 @@ $auth->confirmUser(string $activationKey): User;
 $auth->resendConfirmation(string $email): ConfirmationState;
 $auth->deleteExpiredConfirmations(): int;
 
+$auth->requestPasswordReset(string $email): ResetState;
+$auth->resetPassword(string $resetKey, string $newPassword): User;
+$auth->deleteExpiredResets(): int;
+
 $auth->login(string $email, string $password, bool $remember = false): User;
 $auth->loginWithUsername(string $username, string $password, bool $remember = false): User;
 
@@ -563,6 +583,9 @@ $auth->pdo(): PDO;
 
 `Arris\Auth\DTO\ConfirmationState` — результат `resendConfirmation()`: `sent`, `reason`
 (`sent`, `unknown_user`, `already_verified`, `not_required`, `mail_failed`) и `isSent()`.
+
+`Arris\Auth\DTO\ResetState` — результат `requestPasswordReset()`: `sent`, `reason`
+(`sent`, `unknown_user`, `not_enabled`, `not_allowed`, `mail_failed`) и `isSent()`.
 
 Значения ролей совместимы с `arris.delight-php-auth`: `Arris\Auth\Role` — не final,
 его можно расширить в приложении. `Arris\Auth\DTO\Status` — backed enum; для записи в БД
@@ -660,7 +683,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 112 тестов, 320 assertions. Три MySQL-теста пропускаются, если
+Текущее состояние: 121 тест, 346 assertions. Четыре MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано
@@ -668,12 +691,9 @@ vendor/bin/phpunit
 Пакет остаётся MVP в части account lifecycle:
 
 - нет throttling / rate limiting / lockout;
-- нет готового сценария сброса пароля: настройки `setUserResetOptions()` уже есть,
-  `NativeMailer::sendPasswordReset()` умеет отправлять письмо, но API
-  `requestPasswordReset()` / `resetPassword()` и работа с `users_resets` ещё не
-  реализованы;
 - кастомные `emailValidator` / `passwordValidator` в `AuthConfig` не вызываются;
-- таблицы `users_resets`, `users_throttling` не используются.
+- таблица `users_throttling` не используется.
 
-Подтверждение email реализовано через `users_confirmations`; для production
-нужно задать реальный `MailerInterface`, иначе будет использован `NullMailer`.
+Подтверждение email реализовано через `users_confirmations`, сброс пароля — через
+`users_resets`. Для production нужно задать реальный `MailerInterface`, иначе
+будет использован `NullMailer`.
