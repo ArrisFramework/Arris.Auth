@@ -363,8 +363,7 @@ $auth->logoutEverywhere($auth->id());
 use Arris\Auth\Mailer\NativeMailer;
 
 $config = (new AuthConfig())
-    ->setUserConfirmationRequired(true)
-    ->setConfirmationTtl(3600)
+    ->setUserConfirmationOptions(required: true, ttl: 3600)
     ->setMailer(new NativeMailer([
         'from' => 'noreply@example.com',
         'activation_subject' => 'Confirm your email',
@@ -381,8 +380,8 @@ $user = $auth->confirmUser($activationKey);
 // $user->isVerified() === true
 ```
 
-- `setUserConfirmationRequired(false)` — регистрация сразу ставит `verified = 1`.
-- `setUserConfirmationRequired(true)` — регистрация создаёт `verified = 0` и
+- `setUserConfirmationOptions(required: false)` — регистрация сразу ставит `verified = 1`.
+- `setUserConfirmationOptions(required: true)` — регистрация создаёт `verified = 0` и
   запись в `users_confirmations`, затем вызывает `MailerInterface::sendActivation()`.
 - Если мэйлер не задан, используется `NullMailer` (no-op, возвращает `true`).
 - Ошибка отправки письма не откатывает созданного пользователя.
@@ -617,17 +616,18 @@ $auth->roleNamesForUser($userId);  // ['GAME_MASTER', ...]
 | `setTouchTokenInterval()` | `60` | как часто обновлять `last_used` токена; `0` — отключить |
 | `setAutoInitialize()` | `true` | разрешать текущую аутентификацию в конструкторе |
 | `setRolesMap()` | `null` | карта `name => bit` для отображения ролей; `null` — базовая `Role::map()` |
-| `setUserConfirmationRequired()` | `false` | требовать подтверждение email при регистрации |
-| `setConfirmationTtl()` | `3600` | время жизни confirmation-токена в секундах |
+| `setUserConfirmationOptions(required: ?, ttl: ?)` | `required=false`, `ttl=3600` | параметры подтверждения email; `null` не меняет значение |
 | `setMailer()` | `null` | `MailerInterface`; `null` — `NullMailer` |
 
 `setOption(string $name, mixed $value)` — резервный способ задать любую опцию по
 snake_case-имени из старого API. Внутри он вызывает те же типизированные сеттеры;
 неизвестный ключ или неверное значение дают `ConfigurationException`, а неверный
 PHP-тип значения — `TypeError`. Карта ролей задаётся ключом `roles_map`,
-confirmation — `user_confirmation_required` / `confirmation_ttl`, мэйлер — `mailer`.
+confirmation — `user_confirmation_required` / `user_confirmation_ttl` (старый
+`confirmation_ttl` поддерживается как алиас), мэйлер — `mailer`.
 
-Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()` и т.д.
+Геттеры названы как `getMode()`, `getSessionName()`, `getSessionHandler()`,
+`getUserConfirmationRequired()`, `getUserConfirmationTtl()` и т.д.
 
 ## Тесты
 
@@ -636,7 +636,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 109 тестов, 295 assertions. Три MySQL-теста пропускаются, если
+Текущее состояние: 110 тестов, 301 assertions. Три MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано

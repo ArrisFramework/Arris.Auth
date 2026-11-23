@@ -122,7 +122,7 @@ $auth->register(
 ): \Arris\Auth\DTO\User;
 ```
 
-Поведение зависит от `AuthConfig::setUserConfirmationRequired()`:
+Поведение зависит от `AuthConfig::setUserConfirmationOptions()`:
 
 - `false` (по умолчанию) — `verified = 1`, пользователь может логиниться сразу;
 - `true` — `verified = 0`, создаётся запись в `users_confirmations` и вызывается
@@ -136,8 +136,7 @@ $auth->register(
 use Arris\Auth\Mailer\NativeMailer;
 
 $config = (new AuthConfig())
-    ->setUserConfirmationRequired(true)
-    ->setConfirmationTtl(3600)
+    ->setUserConfirmationOptions(required: true, ttl: 3600)
     ->setMailer(new NativeMailer());
 
 $auth = new Auth($pdo, $config);
@@ -645,7 +644,7 @@ echo $user->username;
   сервер уже хранит хэш.
 - **Забыть `setRejectNonNormalStatus(false)`**, если нужно пускать `BANNED`/`LOCKED`
   пользователей — по умолчанию они не пускаются.
-- **Забыть `setUserConfirmationRequired(false)`**, если регистрация должна сразу
+- **Забыть `setUserConfirmationOptions(required: false)`**, если регистрация должна сразу
   ставить `verified = 1`. При `true` пользователь остаётся неверифицированным до
   `confirmUser()` / `verifyUser()`.
 - **Ожидать письмо без настроенного мэйлера** — по умолчанию используется
