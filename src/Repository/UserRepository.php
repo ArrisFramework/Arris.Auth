@@ -148,6 +148,40 @@ final class UserRepository
     }
 
     /**
+     * Adds role bits atomically and returns the resulting mask.
+     *
+     * Атомарно добавляет биты ролей и возвращает получившуюся маску.
+     */
+    public function addRoleMask(int $id, int $role): int
+    {
+        $statement = $this->pdo->prepare(
+            "UPDATE {$this->table} SET roles_mask = roles_mask | ? WHERE id = ?"
+        );
+        $statement->execute([$role, $id]);
+
+        $row = $this->findById($id);
+
+        return (int) ($row['roles_mask'] ?? 0);
+    }
+
+    /**
+     * Removes role bits atomically and returns the resulting mask.
+     *
+     * Атомарно удаляет биты ролей и возвращает получившуюся маску.
+     */
+    public function removeRoleMask(int $id, int $role): int
+    {
+        $statement = $this->pdo->prepare(
+            "UPDATE {$this->table} SET roles_mask = roles_mask & ~? WHERE id = ?"
+        );
+        $statement->execute([$role, $id]);
+
+        $row = $this->findById($id);
+
+        return (int) ($row['roles_mask'] ?? 0);
+    }
+
+    /**
      * Sets the verified flag for a user.
      *
      * Устанавливает флаг подтверждения для пользователя.

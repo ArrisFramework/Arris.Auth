@@ -678,9 +678,8 @@ class Auth
      */
     public function addRole(int $userId, int $role): int
     {
-        $row = $this->requireUser($userId);
-        $rolesMask = (int) ($row['roles_mask'] ?? 0) | $role;
-        $this->users->updateRolesMask($userId, $rolesMask);
+        $this->requireUser($userId);
+        $rolesMask = $this->users->addRoleMask($userId, $role);
         $this->invalidateCachedUser($userId);
 
         return $rolesMask;
@@ -701,9 +700,8 @@ class Auth
      */
     public function removeRole(int $userId, int $role): int
     {
-        $row = $this->requireUser($userId);
-        $rolesMask = (int) ($row['roles_mask'] ?? 0) & ~$role;
-        $this->users->updateRolesMask($userId, $rolesMask);
+        $this->requireUser($userId);
+        $rolesMask = $this->users->removeRoleMask($userId, $role);
         $this->invalidateCachedUser($userId);
 
         return $rolesMask;
