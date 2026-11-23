@@ -146,7 +146,12 @@ final class AuthConfigTest extends TestCase
 
     public function testSameSiteNoneRequiresSecureAfterAutoDetection(): void
     {
-        unset($_SERVER['HTTPS'], $_SERVER['SERVER_PORT'], $_SERVER['HTTP_X_FORWARDED_PROTO']);
+        unset(
+            $_SERVER['HTTPS'],
+            $_SERVER['SERVER_PORT'],
+            $_SERVER['HTTP_X_FORWARDED_PROTO'],
+            $_SERVER['HTTP_X_FORWARDED_SSL'],
+        );
 
         $config = (new AuthConfig())->setSessionCookie(['samesite' => 'None']);
 
