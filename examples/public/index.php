@@ -473,11 +473,10 @@ if ($path === '/register') {
             $error = 'Пароли не совпадают.';
         } else {
             try {
-                $userId = $auth->register(
+                $auth->register(
                     email: $email,
                     password: $password,
                     username: $username !== '' ? $username : null,
-                    verified: true,
                     rolesMask: Role::SUBSCRIBER,
                 );
 

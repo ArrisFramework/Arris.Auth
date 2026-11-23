@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Arris\Auth;
 
+use Arris\Auth\DTO\ConfirmationState;
 use Arris\Auth\DTO\Status;
 use Arris\Auth\DTO\User;
 use Arris\Auth\Exception\AccountDisabledException;
@@ -12,11 +13,14 @@ use Arris\Auth\Exception\AuthException;
 use Arris\Auth\Exception\ConfigurationException;
 use Arris\Auth\Exception\EmailNotVerifiedException;
 use Arris\Auth\Exception\InvalidCredentialsException;
+use Arris\Auth\Exception\InvalidConfirmationException;
 use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
 use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UnknownUserException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
+use Arris\Auth\Mailer\NullMailer;
+use Arris\Auth\Repository\ConfirmationRepository;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Repository\UserRepository;
 use PDO;
@@ -36,6 +40,7 @@ class Auth
 
     private UserRepository $users;
     private TokenRepository $tokens;
+    private ConfirmationRepository $confirmations;
 
     private AuthConfig $config;
 
@@ -86,6 +91,12 @@ class Auth
         );
 
         $this->tokens = new TokenRepository(
+            $this->pdo,
+            $this->config->getDbSchema(),
+            $this->config->getTablePrefix()
+        );
+
+        $this->confirmations = new ConfirmationRepository(
             $this->pdo,
             $this->config->getDbSchema(),
             $this->config->getTablePrefix()
@@ -166,13 +177,15 @@ class Auth
     }
 
     /**
-     * Registers a new user account.
-     * Validates the email address and password, hashes the password with
-     * password_hash() and returns the generated user ID.
+     * Registers a new user account and returns the created user.
+     * When email confirmation is required, the user is created unverified and
+     * an activation email is sent. Mail delivery failure does not roll back a
+     * successfully created account.
      *
-     * Регистрирует новую учётную запись пользователя.
-     * Проверяет email-адрес и пароль, хэширует пароль через password_hash()
-     * и возвращает сгенерированный ID пользователя.
+     * Регистрирует новую учётную запись и возвращает созданного пользователя.
+     * Если требуется подтверждение email, пользователь создаётся неверифицированным
+     * и отправляется письмо активации. Ошибка отправки письма не откатывает
+     * успешно созданную учётную запись.
      *
      * @throws InvalidEmailException
      * @throws InvalidPasswordException
@@ -183,9 +196,9 @@ class Auth
         string $email,
         string $password,
         ?string $username = null,
-        bool $verified = true,
+        ?bool $verified = null,
         int $rolesMask = 0,
-    ): int {
+    ): User {
         $email = $this->validateEmail($email);
         $this->validateNewPassword($password);
 
@@ -203,22 +216,63 @@ class Auth
             throw new AuthException('Unable to hash the password');
         }
 
-        try {
-            return $this->users->create(
-                $email,
-                $passwordHash,
-                $username,
-                Status::NORMAL->value,
-                $verified ? 1 : 0,
-                $rolesMask
-            );
-        } catch (PDOException $e) {
-            if (\in_array((string) $e->getCode(), ['23000', '23505'], true)) {
-                throw new UserAlreadyExistsException('A user with this email address already exists', 0, $e);
+        $confirmationRequired = $this->config->getUserConfirmationRequired();
+        $isVerified = $verified ?? !$confirmationRequired;
+
+        if ($confirmationRequired && $verified !== true) {
+            $isVerified = false;
+        }
+
+        $needsConfirmation = $confirmationRequired && !$isVerified;
+        $activationKey = null;
+
+        $userId = $this->transactional(function () use (
+            $email,
+            $passwordHash,
+            $username,
+            $isVerified,
+            $rolesMask,
+            $needsConfirmation,
+            &$activationKey,
+        ): int {
+            try {
+                $id = $this->users->create(
+                    $email,
+                    $passwordHash,
+                    $username,
+                    Status::NORMAL->value,
+                    $isVerified ? 1 : 0,
+                    $rolesMask
+                );
+            } catch (PDOException $e) {
+                if (\in_array((string) $e->getCode(), ['23000', '23505'], true)) {
+                    throw new UserAlreadyExistsException('A user with this email address already exists', 0, $e);
+                }
+
+                throw $e;
             }
 
-            throw $e;
+            if ($needsConfirmation) {
+                $activationKey = $this->createConfirmation($id, $email);
+            }
+
+            return $id;
+        });
+
+        if ($needsConfirmation && $activationKey !== null) {
+            try {
+                $this->sendActivation($email, $activationKey);
+            } catch (\Throwable) {
+                // A mail failure must not invalidate a successfully created account.
+            }
         }
+
+        $row = $this->users->findById($userId);
+        if ($row === null) {
+            throw new AuthException('Unable to load the created user');
+        }
+
+        return User::fromRow($row);
     }
 
     /**
@@ -233,8 +287,107 @@ class Auth
     public function verifyUser(int $userId): void
     {
         $this->requireUser($userId);
-        $this->users->setVerified($userId, true);
+
+        $this->transactional(function () use ($userId): void {
+            $this->users->setVerified($userId, true);
+            $this->confirmations->deleteByUser($userId);
+        });
+
         $this->invalidateCachedUser($userId);
+    }
+
+    /**
+     * Confirms a user by an activation token and returns the verified user.
+     *
+     * Подтверждает пользователя по activation-токену и возвращает верифицированного пользователя.
+     *
+     * @throws InvalidConfirmationException
+     * @throws UnknownUserException
+     */
+    public function confirmUser(string $activationKey): User
+    {
+        $activationKey = \trim($activationKey);
+
+        if ($activationKey === '') {
+            throw new InvalidConfirmationException('Invalid confirmation token');
+        }
+
+        $confirmation = $this->confirmations->findActiveByTokenHash(self::hashToken($activationKey));
+
+        if ($confirmation === null) {
+            throw new InvalidConfirmationException('Invalid or expired confirmation token');
+        }
+
+        $userId = (int) $confirmation['user_id'];
+        $userRow = $this->users->findById($userId);
+
+        if ($userRow === null || (string) $userRow['email'] !== (string) $confirmation['email']) {
+            $this->confirmations->deleteByUser($userId);
+
+            throw new InvalidConfirmationException('Invalid confirmation token');
+        }
+
+        $this->transactional(function () use ($userId): void {
+            $this->users->setVerified($userId, true);
+            $this->confirmations->deleteByUser($userId);
+        });
+
+        $this->invalidateCachedUser($userId);
+
+        $freshRow = $this->users->findById($userId);
+
+        if ($freshRow === null) {
+            throw new UnknownUserException('Unknown user');
+        }
+
+        return User::fromRow($freshRow);
+    }
+
+    /**
+     * Resends the confirmation email for an unverified user.
+     *
+     * Повторно отправляет confirmation-письмо неверифицированному пользователю.
+     */
+    public function resendConfirmation(string $email): ConfirmationState
+    {
+        if (!$this->config->getUserConfirmationRequired()) {
+            return ConfirmationState::notRequired();
+        }
+
+        $email = \trim($email);
+        $userRow = $this->users->findByEmail($email);
+
+        if ($userRow === null) {
+            return ConfirmationState::unknownUser();
+        }
+
+        if ((int) $userRow['verified'] === 1) {
+            $this->confirmations->deleteByUser((int) $userRow['id']);
+
+            return ConfirmationState::alreadyVerified();
+        }
+
+        $activationKey = $this->transactional(function () use ($userRow): string {
+            return $this->createConfirmation((int) $userRow['id'], (string) $userRow['email']);
+        });
+
+        try {
+            $sent = $this->sendActivation((string) $userRow['email'], $activationKey);
+        } catch (\Throwable) {
+            $sent = false;
+        }
+
+        return $sent ? ConfirmationState::sent() : ConfirmationState::mailFailed();
+    }
+
+    /**
+     * Deletes expired confirmation rows.
+     *
+     * Удаляет истёкшие confirmation-строки.
+     */
+    public function deleteExpiredConfirmations(): int
+    {
+        return $this->confirmations->deleteExpired();
     }
 
     /**
@@ -992,6 +1145,7 @@ class Auth
         $this->requireUser($userId);
 
         $this->transactional(function () use ($userId): void {
+            $this->confirmations->deleteByUser($userId);
             $this->tokens->deleteByUser($userId);
             $this->users->delete($userId);
         });
@@ -1353,6 +1507,44 @@ class Auth
     }
 
     /**
+     * Creates a confirmation row and returns the plain activation token.
+     *
+     * Создаёт confirmation-строку и возвращает открытый activation-токен.
+     *
+     * @throws \Exception
+     */
+    private function createConfirmation(int $userId, string $email): string
+    {
+        $this->confirmations->deleteByUser($userId);
+
+        $token = self::randomToken(32);
+        $selector = \bin2hex(\random_bytes(8));
+        $expires = \time() + $this->config->getConfirmationTtl();
+
+        $this->confirmations->create(
+            $userId,
+            $email,
+            $selector,
+            self::hashToken($token),
+            $expires
+        );
+
+        return $token;
+    }
+
+    /**
+     * Sends an activation email through the configured mailer.
+     *
+     * Отправляет письмо активации через настроенный мэйлер.
+     */
+    private function sendActivation(string $email, string $activationKey): bool
+    {
+        $mailer = $this->config->getMailer() ?? new NullMailer();
+
+        return $mailer->sendActivation($email, $activationKey);
+    }
+
+    /**
      * Returns a user row or throws when the user does not exist.
      *
      * Возвращает строку пользователя или выбрасывает исключение, если пользователь не существует.
@@ -1607,8 +1799,10 @@ class Auth
      */
     private function isUnverified(array $row): bool
     {
-        return $this->config->getRequireVerified()
-            && (int) ($row['verified'] ?? 0) !== 1;
+        $required = $this->config->getRequireVerified()
+            || $this->config->getUserConfirmationRequired();
+
+        return $required && (int) ($row['verified'] ?? 0) !== 1;
     }
 
     /**

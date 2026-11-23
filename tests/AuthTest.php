@@ -17,8 +17,10 @@ use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Role;
+use Arris\Auth\DTO\ConfirmationState;
 use Arris\Auth\DTO\Status;
 use Arris\Auth\DTO\User;
+use Tests\Support\RecordingMailer;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -87,22 +89,38 @@ final class AuthTest extends TestCase
         bool $verified = true,
         int $rolesMask = 0,
     ): int {
-        return $this->auth()->register($email, $password, $username, $verified, $rolesMask);
+        return $this->auth()->register($email, $password, $username, $verified, $rolesMask)->id;
+    }
+
+    private function confirmationAuth(RecordingMailer $mailer, ?AuthConfig $config = null): Auth
+    {
+        $config ??= new AuthConfig();
+        $config
+            ->setUserConfirmationRequired(true)
+            ->setConfirmationTtl(60)
+            ->setMailer($mailer);
+
+        return $this->auth($config);
     }
 
     public function testSchemaHasAuthLookupIndexes(): void
     {
         $userIndexes = \array_column($this->pdo->query("PRAGMA index_list('users')")->fetchAll(), 'name');
         $tokenIndexes = \array_column($this->pdo->query("PRAGMA index_list('users_tokens')")->fetchAll(), 'name');
+        $confirmationIndexes = \array_column(
+            $this->pdo->query("PRAGMA index_list('users_confirmations')")->fetchAll(),
+            'name'
+        );
 
         self::assertContains('users_username', $userIndexes);
         self::assertContains('users_tokens_token', $tokenIndexes);
+        self::assertContains('users_confirmations_token', $confirmationIndexes);
     }
 
     public function testRegisterCreatesUserWithHashedPassword(): void
     {
         $auth = $this->auth();
-        $id = $auth->register('user@example.com', 'correct horse battery staple', 'user');
+        $id = $auth->register('user@example.com', 'correct horse battery staple', 'user')->id;
 
         $row = $this->pdo->query('SELECT * FROM users WHERE id = ' . $id)->fetch();
 
@@ -134,6 +152,202 @@ final class AuthTest extends TestCase
         $this->expectException(UserAlreadyExistsException::class);
 
         $this->auth()->register('user@example.com', 'correct horse battery staple');
+    }
+
+    public function testRegisterReturnsUserAndCreatesVerifiedUserWithoutConfirmation(): void
+    {
+        $auth = $this->auth();
+        $user = $auth->register('verified@example.com', 'correct horse battery staple', 'verified');
+
+        self::assertInstanceOf(User::class, $user);
+        self::assertSame('verified@example.com', $user->email);
+        self::assertTrue($user->isVerified());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+    }
+
+    public function testRegisterWithConfirmationCreatesPendingUserAndSendsToken(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+
+        $user = $auth->register('pending@example.com', 'correct horse battery staple', 'pending');
+
+        self::assertFalse($user->isVerified());
+        self::assertSame(0, $user->verified);
+        self::assertSame(0, (int) $this->pdo->query(
+            'SELECT verified FROM users WHERE id = ' . $user->id
+        )->fetchColumn());
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+        self::assertCount(1, $mailer->activations);
+        self::assertSame('pending@example.com', $mailer->activations[0]['email']);
+
+        $token = $mailer->activations[0]['key'];
+        $storedToken = (string) $this->pdo->query('SELECT token FROM users_confirmations')->fetchColumn();
+
+        self::assertSame(\hash('sha256', $token), $storedToken);
+    }
+
+    public function testConfirmUserVerifiesUserAndDeletesConfirmation(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+        $user = $auth->register('confirm@example.com', 'correct horse battery staple', 'confirm');
+
+        $confirmed = $auth->confirmUser($mailer->activations[0]['key']);
+
+        self::assertSame($user->id, $confirmed->id);
+        self::assertTrue($confirmed->isVerified());
+        self::assertSame(1, (int) $this->pdo->query(
+            'SELECT verified FROM users WHERE id = ' . $user->id
+        )->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+    }
+
+    public function testConfirmUserRejectsInvalidAndExpiredTokens(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+        $auth->register('expired@example.com', 'correct horse battery staple', 'expired');
+
+        $token = $mailer->activations[0]['key'];
+
+        try {
+            $auth->confirmUser('invalid-token');
+            self::fail('Expected InvalidConfirmationException');
+        } catch (\Arris\Auth\Exception\InvalidConfirmationException) {
+        }
+
+        $this->pdo->exec('UPDATE users_confirmations SET expires = ' . (\time() - 1));
+
+        $this->expectException(\Arris\Auth\Exception\InvalidConfirmationException::class);
+        $auth->confirmUser($token);
+    }
+
+    public function testConfirmationRequiredForcesVerifiedLogin(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer, (new AuthConfig())->setRequireVerified(false));
+        $auth->register('required@example.com', 'correct horse battery staple', 'required');
+
+        $this->expectException(EmailNotVerifiedException::class);
+        $auth->login('required@example.com', 'correct horse battery staple');
+    }
+
+    public function testResendConfirmationInvalidatesOldToken(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+        $auth->register('resend@example.com', 'correct horse battery staple', 'resend');
+
+        $oldToken = $mailer->activations[0]['key'];
+        $state = $auth->resendConfirmation('resend@example.com');
+
+        self::assertInstanceOf(ConfirmationState::class, $state);
+        self::assertTrue($state->isSent());
+        self::assertCount(2, $mailer->activations);
+        self::assertNotSame($oldToken, $mailer->activations[1]['key']);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+
+        try {
+            $auth->confirmUser($oldToken);
+            self::fail('Expected InvalidConfirmationException');
+        } catch (\Arris\Auth\Exception\InvalidConfirmationException) {
+        }
+
+        self::assertTrue($auth->confirmUser($mailer->activations[1]['key'])->isVerified());
+    }
+
+    public function testResendConfirmationStates(): void
+    {
+        $mailer = new RecordingMailer();
+        $config = (new AuthConfig())->setMailer($mailer);
+        $auth = $this->auth($config);
+
+        self::assertSame(ConfirmationState::NOT_REQUIRED, $auth->resendConfirmation('missing@example.com')->reason);
+
+        $pendingAuth = $this->confirmationAuth($mailer);
+        self::assertSame(ConfirmationState::UNKNOWN_USER, $pendingAuth->resendConfirmation('missing@example.com')->reason);
+
+        $user = $pendingAuth->register('already@example.com', 'correct horse battery staple', 'already');
+        $pendingAuth->confirmUser($mailer->activations[0]['key']);
+
+        self::assertSame(ConfirmationState::ALREADY_VERIFIED, $pendingAuth->resendConfirmation($user->email)->reason);
+    }
+
+    public function testMailFailureDoesNotFailRegistrationOrResend(): void
+    {
+        $mailer = new RecordingMailer();
+        $mailer->result = false;
+        $auth = $this->confirmationAuth($mailer);
+
+        $user = $auth->register('mail-fail@example.com', 'correct horse battery staple', 'mail-fail');
+
+        self::assertFalse($user->isVerified());
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+
+        $state = $auth->resendConfirmation('mail-fail@example.com');
+
+        self::assertSame(ConfirmationState::MAIL_FAILED, $state->reason);
+        self::assertFalse($state->isSent());
+    }
+
+    public function testConfirmationUsesNullMailerWhenNoMailerIsConfigured(): void
+    {
+        $config = (new AuthConfig())->setUserConfirmationRequired(true);
+        $auth = $this->auth($config);
+
+        $user = $auth->register('null-mailer@example.com', 'correct horse battery staple', 'null-mailer');
+
+        self::assertFalse($user->isVerified());
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+    }
+
+    public function testAdminRegistrationBypassesConfirmation(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+
+        $user = $auth->register('admin-created@example.com', 'correct horse battery staple', 'admin-created', verified: true);
+
+        self::assertTrue($user->isVerified());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+        self::assertCount(0, $mailer->activations);
+    }
+
+    public function testVerifyUserDeletesConfirmationRows(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+        $user = $auth->register('manual@example.com', 'correct horse battery staple', 'manual');
+
+        $auth->verifyUser($user->id);
+
+        self::assertSame(1, (int) $this->pdo->query(
+            'SELECT verified FROM users WHERE id = ' . $user->id
+        )->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+    }
+
+    public function testDeleteUserDeletesConfirmationRows(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+        $user = $auth->register('delete-pending@example.com', 'correct horse battery staple', 'delete-pending');
+
+        $auth->deleteUser($user->id);
+
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM users_confirmations')->fetchColumn());
+    }
+
+    public function testDeleteExpiredConfirmations(): void
+    {
+        $mailer = new RecordingMailer();
+        $auth = $this->confirmationAuth($mailer);
+        $auth->register('cleanup@example.com', 'correct horse battery staple', 'cleanup');
+
+        $this->pdo->exec('UPDATE users_confirmations SET expires = ' . (\time() - 1));
+
+        self::assertSame(1, $auth->deleteExpiredConfirmations());
     }
 
     public function testLoginCreatesSession(): void
@@ -380,7 +594,7 @@ final class AuthTest extends TestCase
     {
         $config = (new AuthConfig())->setRequireVerified(false);
         $auth = $this->auth($config);
-        $id = $auth->register('user@example.com', 'correct horse battery staple', 'user', verified: false);
+        $id = $auth->register('user@example.com', 'correct horse battery staple', 'user', verified: false)->id;
         $auth->login('user@example.com', 'correct horse battery staple');
 
         self::assertFalse($auth->user()?->isVerified());
@@ -847,7 +1061,7 @@ final class AuthTest extends TestCase
             'correct horse battery staple',
             'custom-roles',
             rolesMask: Role::ADMIN | Role::MODERATOR
-        );
+        )->id;
         $auth->login('custom-roles@example.com', 'correct horse battery staple');
 
         self::assertSame(
@@ -870,7 +1084,7 @@ final class AuthTest extends TestCase
             'aliases@example.com',
             'correct horse battery staple',
             rolesMask: Role::MODERATOR
-        );
+        )->id;
 
         self::assertSame(['MAGE', 'ARCHMAGE'], $auth->roleNamesForUser($id));
     }
@@ -979,7 +1193,7 @@ final class AuthTest extends TestCase
     {
         $config = (new AuthConfig())->setRequireVerified(false);
         $auth = $this->auth($config);
-        $id = $auth->register('unverified@example.com', 'correct horse battery staple', verified: false);
+        $id = $auth->register('unverified@example.com', 'correct horse battery staple', verified: false)->id;
         $token = $auth->issueToken($id);
 
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
