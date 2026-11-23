@@ -37,6 +37,8 @@ final class AuthTest extends TestCase
             $_SERVER['REDIRECT_HTTP_AUTHORIZATION'],
             $_SERVER['HTTPS'],
             $_SERVER['SERVER_PORT'],
+            $_SERVER['HTTP_X_FORWARDED_PROTO'],
+            $_SERVER['HTTP_X_FORWARDED_SSL'],
         );
 
         $this->pdo = new PDO('sqlite::memory:');
@@ -239,6 +241,36 @@ final class AuthTest extends TestCase
 
         self::assertSame($id, $auth->getUserId());
         self::assertTrue($auth->isRemembered());
+    }
+
+    public function testHttpsDetectionSupportsReverseProxyHeaders(): void
+    {
+        $method = new \ReflectionMethod(Auth::class, 'isHttps');
+        $method->setAccessible(true);
+        $auth = $this->auth();
+
+        self::assertFalse($method->invoke($auth));
+
+        $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
+        self::assertTrue($method->invoke($auth));
+
+        $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https, http';
+        self::assertTrue($method->invoke($auth));
+
+        $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'http';
+        self::assertFalse($method->invoke($auth));
+
+        unset($_SERVER['HTTP_X_FORWARDED_PROTO']);
+        $_SERVER['HTTP_X_FORWARDED_SSL'] = 'on';
+        self::assertTrue($method->invoke($auth));
+
+        unset($_SERVER['HTTP_X_FORWARDED_SSL']);
+        $_SERVER['HTTPS'] = 'on';
+        self::assertTrue($method->invoke($auth));
+
+        $_SERVER['HTTPS'] = 'off';
+        $_SERVER['SERVER_PORT'] = 443;
+        self::assertTrue($method->invoke($auth));
     }
 
     public function testUserOrFailThrowsWhenNotLoggedIn(): void

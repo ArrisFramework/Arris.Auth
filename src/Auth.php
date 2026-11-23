@@ -1622,13 +1622,35 @@ class Auth
 
     /**
      * Detects whether the current request was made over HTTPS.
+     * Direct HTTPS, port 443 and common reverse-proxy headers are recognized.
      *
      * Определяет, был ли текущий запрос выполнен по HTTPS.
+     * Учитываются прямой HTTPS, порт 443 и типовые заголовки reverse-proxy.
      */
     private function isHttps(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && \strtolower((string) $_SERVER['HTTPS']) !== 'off')
-            || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
+        if (!empty($_SERVER['HTTPS']) && \strtolower((string) $_SERVER['HTTPS']) !== 'off') {
+            return true;
+        }
+
+        if ((int) ($_SERVER['SERVER_PORT'] ?? 0) === 443) {
+            return true;
+        }
+
+        $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? null;
+
+        if (\is_string($forwardedProto) && $forwardedProto !== '') {
+            $proto = \strtolower(\trim(\explode(',', $forwardedProto, 2)[0]));
+
+            if ($proto === 'https') {
+                return true;
+            }
+        }
+
+        $forwardedSsl = $_SERVER['HTTP_X_FORWARDED_SSL'] ?? null;
+
+        return \is_string($forwardedSsl)
+            && \strtolower(\trim($forwardedSsl)) === 'on';
     }
 
     /**
