@@ -836,6 +836,45 @@ final class AuthTest extends TestCase
         self::assertTrue($auth->user()?->hasRole(Role::ADMIN));
     }
 
+    public function testCustomRolesMapIsUsedByGetRolesAndRoleNamesForUser(): void
+    {
+        $map = ['GM' => Role::ADMIN, 'MAGE' => Role::MODERATOR];
+        $config = (new AuthConfig())->setRolesMap($map);
+        $auth = $this->auth($config);
+
+        $id = $auth->register(
+            'custom-roles@example.com',
+            'correct horse battery staple',
+            'custom-roles',
+            rolesMask: Role::ADMIN | Role::MODERATOR
+        );
+        $auth->login('custom-roles@example.com', 'correct horse battery staple');
+
+        self::assertSame(
+            [Role::ADMIN => 'GM', Role::MODERATOR => 'MAGE'],
+            $auth->getRoles()
+        );
+        self::assertSame(['GM', 'MAGE'], $auth->roleNamesForUser($id));
+        self::assertSame(
+            ['GM'],
+            $auth->roleNamesForUser($id, ['GM' => Role::ADMIN])
+        );
+    }
+
+    public function testCustomRolesMapSupportsAliases(): void
+    {
+        $map = ['MAGE' => Role::MODERATOR, 'ARCHMAGE' => Role::MODERATOR];
+        $auth = $this->auth((new AuthConfig())->setRolesMap($map));
+
+        $id = $auth->register(
+            'aliases@example.com',
+            'correct horse battery staple',
+            rolesMask: Role::MODERATOR
+        );
+
+        self::assertSame(['MAGE', 'ARCHMAGE'], $auth->roleNamesForUser($id));
+    }
+
     public function testRoleManagement(): void
     {
         $id = $this->createUser(rolesMask: Role::AUTHOR);

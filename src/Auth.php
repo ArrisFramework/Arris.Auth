@@ -561,8 +561,11 @@ class Auth
             return [];
         }
 
+        $map = $this->config->getRolesMap();
+        $byBit = $map === null ? Role::getMap() : \array_flip($map);
+
         return \array_filter(
-            Role::getMap(),
+            $byBit,
             static fn (int $role): bool => $user->hasRole($role),
             \ARRAY_FILTER_USE_KEY
         );
@@ -733,6 +736,8 @@ class Auth
      */
     public function roleNamesForUser(int $userId, ?array $map = null): array
     {
+        $map ??= $this->config->getRolesMap() ?? Role::map();
+
         return User::fromRow($this->requireUser($userId))->roleNames($map);
     }
 

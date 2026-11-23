@@ -28,6 +28,9 @@ class AuthConfig
     private int $touchTokenInterval = 60;
     private bool $autoInitialize = true;
 
+    /** @var array<string, int>|null */
+    private ?array $rolesMap = null;
+
     /**
      * Custom E-Mail validator callback
      *
@@ -481,6 +484,68 @@ class AuthConfig
     }
 
     /**
+     * Returns the application role map, or null to use the base Role::map().
+     *
+     * Возвращает карту ролей приложения или null, если используется базовая Role::map().
+     *
+     * @return array<string, int>|null
+     */
+    public function getRolesMap(): ?array
+    {
+        return $this->rolesMap;
+    }
+
+    /**
+     * Sets the application role map as name => bit.
+     * Pass null to fall back to the base Role::map().
+     *
+     * Устанавливает карту ролей приложения в формате name => bit.
+     * Передайте null, чтобы вернуться к базовой Role::map().
+     *
+     * @param array<string, int>|null $map
+     * @throws ConfigurationException
+     */
+    public function setRolesMap(?array $map): self
+    {
+        if ($map !== null) {
+            $this->assertValidRolesMap($map);
+        }
+
+        $this->rolesMap = $map;
+
+        return $this;
+    }
+
+    /**
+     * Validates role names and bit values.
+     *
+     * Проверяет имена ролей и значения битов.
+     *
+     * @param array<string, int> $map
+     * @throws ConfigurationException
+     */
+    private function assertValidRolesMap(array $map): void
+    {
+        foreach ($map as $name => $bit) {
+            if (!\is_string($name) || \trim($name) === '') {
+                throw new ConfigurationException('Role names must be non-empty strings');
+            }
+
+            if (!\is_int($bit) || $bit <= 0 || ($bit & ($bit - 1)) !== 0) {
+                throw new ConfigurationException(
+                    "Role bit for {$name} must be a positive power of two"
+                );
+            }
+
+            if ($bit > 0x80000000) {
+                throw new ConfigurationException(
+                    "Role bit for {$name} exceeds the unsigned 32-bit roles_mask range"
+                );
+            }
+        }
+    }
+
+    /**
      * Sets an option by its snake_case name.
      * This is a fallback for configuration hydration; typed setters are preferred.
      *
@@ -508,6 +573,7 @@ class AuthConfig
             'update_last_login' => $this->setUpdateLastLogin($value),
             'touch_token_interval' => $this->setTouchTokenInterval($value),
             'auto_initialize' => $this->setAutoInitialize($value),
+            'roles_map' => $this->setRolesMap($value),
             default => throw new ConfigurationException("Unknown auth option: {$name}"),
         };
     }

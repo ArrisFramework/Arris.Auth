@@ -7,6 +7,7 @@ namespace Tests;
 use Arris\Auth\Auth;
 use Arris\Auth\AuthConfig;
 use Arris\Auth\Exception\ConfigurationException;
+use Arris\Auth\Role;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use SessionHandlerInterface;
@@ -32,6 +33,44 @@ final class AuthConfigTest extends TestCase
         self::assertTrue($config->getUpdateLastLogin());
         self::assertSame(60, $config->getTouchTokenInterval());
         self::assertTrue($config->getAutoInitialize());
+        self::assertNull($config->getRolesMap());
+    }
+
+    public function testRolesMapDefaultsToNullAndCanBeReset(): void
+    {
+        $config = new AuthConfig();
+
+        self::assertNull($config->getRolesMap());
+
+        $map = ['GM' => Role::ADMIN, 'MAGE' => Role::MODERATOR];
+        $config->setRolesMap($map);
+
+        self::assertSame($map, $config->getRolesMap());
+
+        $config->setRolesMap(null);
+
+        self::assertNull($config->getRolesMap());
+    }
+
+    public function testInvalidRolesMapIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setRolesMap(['INVALID' => 3]);
+    }
+
+    public function testRolesMapBitAboveUnsignedIntIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setRolesMap(['TOO_HIGH' => 1 << 32]);
+    }
+
+    public function testRolesMapRejectsEmptyName(): void
+    {
+        $this->expectException(ConfigurationException::class);
+
+        (new AuthConfig())->setRolesMap(['' => Role::ADMIN]);
     }
 
     public function testFluentSetters(): void
@@ -74,18 +113,22 @@ final class AuthConfigTest extends TestCase
 
     public function testSetOptionDispatchesToTypedSetters(): void
     {
+        $rolesMap = ['GM' => Role::ADMIN];
+
         $config = (new AuthConfig())
             ->setOption('mode', Auth::MODE_SESSION)
             ->setOption('session_name', 'app_session')
             ->setOption('token_ttl', 0)
             ->setOption('min_password_length', 10)
-            ->setOption('auto_initialize', false);
+            ->setOption('auto_initialize', false)
+            ->setOption('roles_map', $rolesMap);
 
         self::assertSame(Auth::MODE_SESSION, $config->getMode());
         self::assertSame('app_session', $config->getSessionName());
         self::assertSame(0, $config->getTokenTtl());
         self::assertSame(10, $config->getMinPasswordLength());
         self::assertFalse($config->getAutoInitialize());
+        self::assertSame($rolesMap, $config->getRolesMap());
     }
 
     public function testInvalidModeIsRejected(): void
