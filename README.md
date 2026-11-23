@@ -306,7 +306,8 @@ real_ip_recursive on;
 - nginx: `fastcgi_param HTTPS on;` и `REMOTE_ADDR $remote_addr`.
 - `setMailer(new YourSmtpOrApiMailer())` вместо `NativeMailer`/`mail()`.
 - `setEMailValidator()` и `setPasswordValidator()` — политика приложения.
-- `deleteExpiredThrottling()` по cron; таблица `users_throttling` растёт.
+- `deleteExpiredThrottling()` периодически, по фактическому росту таблицы
+  `users_throttling`; фиксированный интервал не требуется.
 - idle/absolute session timeout — ответственность приложения.
 - `ext-session` должен быть доступен в PHP.
 - `psr/log` logger можно подключить через `setLogger()`.
@@ -550,8 +551,9 @@ confirmation возвращают `throttled` с `retryAfter`. Для тесто
 $auth->deleteExpiredThrottling();
 ```
 
-Например, cron раз в 10–15 минут. Случайная очистка внутри библиотеки не
-предусмотрена — она не гарантирует своевременное удаление при низком трафике.
+Периодичность зависит от фактического роста таблицы: при низком трафике достаточно
+раз в сутки/неделю или ручного запуска; фиксированный интервал не требуется.
+Случайная очистка внутри библиотеки не предусмотрена.
 
 ### Валидаторы email и пароля
 

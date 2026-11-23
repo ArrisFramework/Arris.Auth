@@ -726,7 +726,8 @@ $config->setThrottlingOptions(new ThrottlingOptions(
 $auth->deleteExpiredThrottling();
 ```
 
-Cron раз в 10–15 минут.
+Периодичность — по фактическому росту таблицы: раз в сутки/неделю или вручную.
+Фиксированный интервал не требуется.
 
 ---
 

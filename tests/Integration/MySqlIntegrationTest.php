@@ -6,6 +6,8 @@ namespace Tests\Integration;
 
 use Arris\Auth\Auth;
 use Arris\Auth\AuthConfig;
+use Arris\Auth\DTO\UserConfirmationOptions;
+use Arris\Auth\DTO\UserResetOptions;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\RecordingMailer;
@@ -15,6 +17,19 @@ use Tests\Support\RecordingMailer;
  *
  * Set ARRIS_AUTH_MYSQL_DSN (and optionally ARRIS_AUTH_MYSQL_USER /
  * ARRIS_AUTH_MYSQL_PASSWORD) to run these tests.
+ *
+ * Одной строкой:
+ * ARRIS_AUTH_MYSQL_DSN='mysql:host=localhost;dbname=arris_auth;charset=utf8mb4' ARRIS_AUTH_MYSQL_USER='arris_auth' ARRIS_AUTH_MYSQL_PASSWORD='password' vendor/bin/phpunit --filter MySqlIntegrationTest
+ *
+ * Если нужен весь suite:
+ * ARRIS_AUTH_MYSQL_DSN='mysql:host=localhost;dbname=arris_auth;charset=utf8mb4' ARRIS_AUTH_MYSQL_USER='arris_auth' ARRIS_AUTH_MYSQL_PASSWORD='password' vendor/bin/phpunit
+ *
+ * Альтернативно через export:
+ * export ARRIS_AUTH_MYSQL_DSN='mysql:host=localhost;dbname=arris_auth;charset=utf8mb4'
+ * export ARRIS_AUTH_MYSQL_USER='arris_auth'
+ * export ARRIS_AUTH_MYSQL_PASSWORD='password'
+ * vendor/bin/phpunit --filter MySqlIntegrationTest
+ *
  */
 final class MySqlIntegrationTest extends TestCase
 {
@@ -81,6 +96,7 @@ final class MySqlIntegrationTest extends TestCase
     public function testLoginBearerAndRememberFlowOnMySql(): void
     {
         $config = (new AuthConfig())
+            ->setAllowInsecureHttp(true)
             ->setSessionName('arris_mysql_test')
             ->setSessionCookie(['secure' => false, 'path' => '/'])
             ->setRememberCookieName('arris_mysql_remember');
@@ -113,9 +129,10 @@ final class MySqlIntegrationTest extends TestCase
     {
         $mailer = new RecordingMailer();
         $config = (new AuthConfig())
+            ->setAllowInsecureHttp(true)
             ->setSessionName('arris_mysql_confirmation')
             ->setSessionCookie(['secure' => false, 'path' => '/'])
-            ->setUserConfirmationOptions(required: true, ttl: 60)
+            ->setUserConfirmationOptions(new UserConfirmationOptions(required: true, ttl: 60))
             ->setMailer($mailer);
 
         $auth = new Auth($this->pdo, $config);
@@ -137,9 +154,10 @@ final class MySqlIntegrationTest extends TestCase
     {
         $mailer = new RecordingMailer();
         $config = (new AuthConfig())
+            ->setAllowInsecureHttp(true)
             ->setSessionName('arris_mysql_reset')
             ->setSessionCookie(['secure' => false, 'path' => '/'])
-            ->setUserResetOptions(enabled: true, ttl: 60, allowedAny: false)
+            ->setUserResetOptions(new UserResetOptions(enabled: true, ttl: 60, allowedAny: false))
             ->setMailer($mailer);
 
         $auth = new Auth($this->pdo, $config);
