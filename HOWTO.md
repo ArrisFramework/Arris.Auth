@@ -291,6 +291,22 @@ try {
 $user = $auth->loginWithUsername('user', $password, remember: true);
 ```
 
+`loginWithUsername()` не учитывает регистр. Смена username:
+
+```php
+use Arris\Auth\Exception\UsernameAlreadyExistsException;
+
+try {
+    $auth->changeUsername($userId, 'NewName');
+} catch (UsernameAlreadyExistsException $e) {
+    echo 'Такое имя уже занято';
+}
+```
+
+`changeUsername()` тоже сравнивает без учёта регистра. При регистрации дубликаты
+username по-прежнему разрешены; в этом случае `loginWithUsername()` бросает
+`AmbiguousUsernameException`.
+
 `remember: true` включает remember-me cookie. Время жизни задаётся заранее:
 
 ```php
@@ -677,6 +693,7 @@ echo $user->username;
 | Пользователь не найден | `UnknownUserException` |
 | Неверный/истёкший confirmation-токен | `InvalidConfirmationException` |
 | Неверный/истёкший reset-токен | `InvalidResetException` |
+| Username уже занят | `UsernameAlreadyExistsException` |
 | Превышен throttling | `TooManyRequestsException` |
 | Не авторизован там, где нужен пользователь | `NotLoggedInException` |
 | `login()` в режиме `token` | `ConfigurationException` |

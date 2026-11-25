@@ -45,8 +45,10 @@ CREATE TABLE `users_tokens` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-Для `users` также нужен индекс `KEY username (username)` — по нему работает
-`loginWithUsername()`. Полная схема — в `_database/schema_mysql.sql`.
+Для `users` также нужен обычный индекс `KEY username (username)` — по нему работает
+`loginWithUsername()`. Это не FULLTEXT. Username сравнивается без учёта регистра
+за счёт collation `utf8mb4_unicode_ci` (в SQLite — `COLLATE NOCASE`).
+Полная схема — в `_database/schema_mysql.sql`.
 
 ### Миграция с Delight PHP Auth
 
@@ -713,11 +715,17 @@ $auth->logoutEverywhere(int $userId): void;
 $auth->reconfirmPassword(string $password): bool;
 $auth->changeOwnPassword(string $oldPassword, string $newPassword, bool $keepCurrentSession = true): void;
 $auth->changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void;
+$auth->changeUsername(int $userId, ?string $username): void;
 $auth->deleteUser(int $userId): void;
 
 $auth->mode(): string;
 $auth->pdo(): PDO;
 ```
+
+`loginWithUsername()` сравнивает username без учёта регистра. `changeUsername()`
+также сравнивает без учёта регистра и бросает `UsernameAlreadyExistsException`,
+если имя занято другим пользователем. При регистрации дубликаты по-прежнему
+разрешены; `loginWithUsername()` в таком случае бросает `AmbiguousUsernameException`.
 
 `Arris\Auth\DTO\User` — readonly-объект: `id`, `email`, `username`, `status`, `verified`, `resettable`,
 `rolesMask`, `registered`, `lastLogin`, `forceLogout`, `properties`, плюс `isNormal()`,
@@ -830,7 +838,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 133 теста, 373 assertions. Четыре MySQL-теста пропускаются, если
+Текущее состояние: 138 тестов, 379 assertions. Четыре MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано

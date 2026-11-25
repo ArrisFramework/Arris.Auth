@@ -122,6 +122,19 @@ final class UserRepository
     }
 
     /**
+     * Replaces the user's username.
+     *
+     * Заменяет имя пользователя.
+     */
+    public function updateUsername(int $id, ?string $username): void
+    {
+        $statement = $this->pdo->prepare(
+            "UPDATE {$this->table} SET username = ? WHERE id = ?"
+        );
+        $statement->execute([$username, $id]);
+    }
+
+    /**
      * Replaces the user's password hash.
      *
      * Заменяет хэш пароля пользователя.

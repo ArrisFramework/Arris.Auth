@@ -15,6 +15,7 @@ use Arris\Auth\Exception\InvalidEmailException;
 use Arris\Auth\Exception\InvalidPasswordException;
 use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
+use Arris\Auth\Exception\UsernameAlreadyExistsException;
 use Arris\Auth\Repository\TokenRepository;
 use Arris\Auth\Role;
 use Arris\Auth\DTO\ConfirmationState;
@@ -977,6 +978,56 @@ final class AuthTest extends TestCase
         $user = $this->auth()->loginWithUsername('user', 'correct horse battery staple');
 
         self::assertSame($id, $user->id);
+    }
+
+    public function testLoginWithUsernameIsCaseInsensitive(): void
+    {
+        $id = $this->createUser();
+
+        $user = $this->auth()->loginWithUsername('UsEr', 'correct horse battery staple');
+
+        self::assertSame($id, $user->id);
+    }
+
+    public function testChangeUsernameUpdatesLoginAndCachedUser(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        $auth->changeUsername($id, 'Renamed');
+
+        self::assertSame('Renamed', $auth->user()?->username);
+
+        $loggedIn = $auth->loginWithUsername('rEnAmEd', 'correct horse battery staple');
+        self::assertSame($id, $loggedIn->id);
+    }
+
+    public function testChangeUsernameRejectsCaseInsensitiveDuplicate(): void
+    {
+        $this->createUser('one@example.com', username: 'first');
+        $id = $this->createUser('two@example.com', username: 'second');
+
+        $this->expectException(UsernameAlreadyExistsException::class);
+
+        $this->auth()->changeUsername($id, 'FIRST');
+    }
+
+    public function testChangeUsernameToEmptyBecomesNull(): void
+    {
+        $id = $this->createUser();
+
+        $this->auth()->changeUsername($id, '   ');
+
+        $row = $this->pdo->query('SELECT username FROM users WHERE id = ' . $id)->fetch();
+        self::assertNull($row['username']);
+    }
+
+    public function testChangeUsernameForUnknownUserThrows(): void
+    {
+        $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
+
+        $this->auth()->changeUsername(999, 'name');
     }
 
     public function testLoginWithAmbiguousUsernameThrows(): void

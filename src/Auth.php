@@ -23,6 +23,7 @@ use Arris\Auth\Exception\NotLoggedInException;
 use Arris\Auth\Exception\TooManyRequestsException;
 use Arris\Auth\Exception\UnknownUserException;
 use Arris\Auth\Exception\UserAlreadyExistsException;
+use Arris\Auth\Exception\UsernameAlreadyExistsException;
 use Arris\Auth\Repository\ConfirmationRepository;
 use Arris\Auth\Repository\ResetRepository;
 use Arris\Auth\Repository\ThrottleRepository;
@@ -1416,6 +1417,43 @@ class Auth
             $this->cachedUser = null;
             $this->currentBearerToken = null;
         }
+    }
+
+    /**
+     * Changes a user's username.
+     * Usernames are compared case-insensitively and must not belong to another user.
+     *
+     * Меняет имя пользователя.
+     * Имена сравниваются без учёта регистра и не должны принадлежать другому пользователю.
+     *
+     * @throws UnknownUserException
+     * @throws UsernameAlreadyExistsException
+     */
+    public function changeUsername(int $userId, ?string $username): void
+    {
+        $this->requireUser($userId);
+
+        $username = $username !== null ? \trim($username) : null;
+
+        if ($username === '') {
+            $username = null;
+        }
+
+        if ($username !== null) {
+            foreach ($this->users->findByUsername($username) as $row) {
+                if ((int) $row['id'] !== $userId) {
+                    throw new UsernameAlreadyExistsException('This username is already in use');
+                }
+            }
+        }
+
+        $this->users->updateUsername($userId, $username);
+        $this->invalidateCachedUser($userId);
+
+        $this->log('info', 'Username changed', [
+            'user_id' => $userId,
+            'username' => $username,
+        ]);
     }
 
     /**

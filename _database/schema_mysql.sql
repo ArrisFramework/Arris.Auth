@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
     `email` varchar(249) NOT NULL,
     `password` varchar(255) CHARACTER SET latin1 COLLATE latin1_general_cs NOT NULL,
-    `username` varchar(100) DEFAULT NULL,
+    `username` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `status` tinyint(2) unsigned NOT NULL DEFAULT 0,
     `verified` tinyint(1) unsigned NOT NULL DEFAULT 0,
     `resettable` tinyint(1) unsigned NOT NULL DEFAULT 1,
