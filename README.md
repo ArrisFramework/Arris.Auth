@@ -716,6 +716,8 @@ $auth->reconfirmPassword(string $password): bool;
 $auth->changeOwnPassword(string $oldPassword, string $newPassword, bool $keepCurrentSession = true): void;
 $auth->changePassword(int $userId, string $newPassword, bool $keepCurrentSession = true): void;
 $auth->changeUsername(int $userId, ?string $username): void;
+$auth->changeProperties(int $userId, array|\stdClass|null $properties): void;
+$auth->changeOwnProperties(array|\stdClass|null $properties): void;
 $auth->deleteUser(int $userId): void;
 
 $auth->mode(): string;
@@ -727,9 +729,27 @@ $auth->pdo(): PDO;
 если имя занято другим пользователем. При регистрации дубликаты по-прежнему
 разрешены; `loginWithUsername()` в таком случае бросает `AmbiguousUsernameException`.
 
+### Дополнительные свойства пользователя
+
+`users.properties` хранится как JSON. Запись — только через интерфейс библиотеки:
+
+```php
+$auth->changeProperties($userId, ['theme' => 'dark']);
+$auth->changeOwnProperties(new \stdClass());
+
+$user->properties;        // raw JSON
+$user->propertiesArray(); // ['theme' => 'dark']
+$user->propertiesObject(); // stdClass
+```
+
+- `changeProperties(..., null)` очищает поле;
+- `propertiesArray()` возвращает `null` для невалидного/не-array JSON;
+- `propertiesObject()` возвращает `null`, если JSON не является объектом;
+- `properties` остаётся сырой строкой для обратной совместимости.
+
 `Arris\Auth\DTO\User` — readonly-объект: `id`, `email`, `username`, `status`, `verified`, `resettable`,
 `rolesMask`, `registered`, `lastLogin`, `forceLogout`, `properties`, плюс `isNormal()`,
-`isBanned()`, `hasRole()`, `roleNames()`, `toArray()`.
+`isBanned()`, `hasRole()`, `roleNames()`, `propertiesArray()`, `propertiesObject()`, `toArray()`.
 
 `Arris\Auth\DTO\ConfirmationState` — результат `resendConfirmation()`: `sent`, `reason`
 (`sent`, `unknown_user`, `already_verified`, `not_required`, `mail_failed`) и `isSent()`.
@@ -838,7 +858,7 @@ composer install
 vendor/bin/phpunit
 ```
 
-Текущее состояние: 138 тестов, 379 assertions. Четыре MySQL-теста пропускаются, если
+Текущее состояние: 144 теста, 394 assertions. Четыре MySQL-теста пропускаются, если
 не задан `ARRIS_AUTH_MYSQL_DSN`; для них нужен отдельный тестовый MySQL-инстанс.
 
 ## Что пока не реализовано

@@ -135,6 +135,19 @@ final class UserRepository
     }
 
     /**
+     * Replaces the user's properties payload.
+     *
+     * Заменяет payload свойств пользователя.
+     */
+    public function updateProperties(int $id, ?string $properties): void
+    {
+        $statement = $this->pdo->prepare(
+            "UPDATE {$this->table} SET properties = ? WHERE id = ?"
+        );
+        $statement->execute([$properties, $id]);
+    }
+
+    /**
      * Replaces the user's password hash.
      *
      * Заменяет хэш пароля пользователя.

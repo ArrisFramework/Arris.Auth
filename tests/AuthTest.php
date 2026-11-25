@@ -8,6 +8,7 @@ use Arris\Auth\Auth;
 use Arris\Auth\AuthConfig;
 use Arris\Auth\Exception\AccountDisabledException;
 use Arris\Auth\Exception\AmbiguousUsernameException;
+use Arris\Auth\Exception\AuthException;
 use Arris\Auth\Exception\ConfigurationException;
 use Arris\Auth\Exception\EmailNotVerifiedException;
 use Arris\Auth\Exception\InvalidCredentialsException;
@@ -1028,6 +1029,97 @@ final class AuthTest extends TestCase
         $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
 
         $this->auth()->changeUsername(999, 'name');
+    }
+
+    public function testChangePropertiesStoresJsonAndExposesHelpers(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $auth->login('user@example.com', 'correct horse battery staple');
+
+        $auth->changeProperties($id, [
+            'theme' => 'dark',
+            'notifications' => true,
+        ]);
+
+        $row = $this->pdo->query('SELECT properties FROM users WHERE id = ' . $id)->fetch();
+        self::assertSame('{"theme":"dark","notifications":true}', $row['properties']);
+
+        $user = $auth->user();
+
+        self::assertSame(
+            ['theme' => 'dark', 'notifications' => true],
+            $user?->propertiesArray()
+        );
+        self::assertSame('dark', $user?->propertiesObject()?->theme);
+        self::assertTrue($user?->propertiesObject()?->notifications);
+    }
+
+    public function testChangePropertiesSupportsStdClassAndNull(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+        $properties = new \stdClass();
+        $properties->theme = 'light';
+
+        $auth->changeProperties($id, $properties);
+
+        $row = $this->pdo->query('SELECT properties FROM users WHERE id = ' . $id)->fetch();
+        self::assertSame('{"theme":"light"}', $row['properties']);
+
+        $auth->changeProperties($id, null);
+
+        $row = $this->pdo->query('SELECT properties FROM users WHERE id = ' . $id)->fetch();
+        self::assertNull($row['properties']);
+        self::assertNull($auth->user()?->properties);
+    }
+
+    public function testChangeOwnPropertiesRequiresLoginAndUpdatesCurrentUser(): void
+    {
+        $id = $this->createUser();
+        $auth = $this->auth();
+
+        try {
+            $auth->changeOwnProperties(['theme' => 'dark']);
+            self::fail('Expected NotLoggedInException');
+        } catch (NotLoggedInException) {
+        }
+
+        $auth->login('user@example.com', 'correct horse battery staple');
+        $auth->changeOwnProperties(['theme' => 'dark']);
+
+        self::assertSame($id, $auth->id());
+        self::assertSame(['theme' => 'dark'], $auth->user()?->propertiesArray());
+    }
+
+    public function testPropertiesHelpersHandleInvalidAndArrayJson(): void
+    {
+        $id = $this->createUser();
+
+        $this->pdo->exec("UPDATE users SET properties = 'not-json' WHERE id = " . $id);
+        $user = User::fromRow($this->pdo->query('SELECT * FROM users WHERE id = ' . $id)->fetch());
+        self::assertNull($user->propertiesArray());
+        self::assertNull($user->propertiesObject());
+
+        $this->pdo->exec("UPDATE users SET properties = '[1,2]' WHERE id = " . $id);
+        $user = User::fromRow($this->pdo->query('SELECT * FROM users WHERE id = ' . $id)->fetch());
+        self::assertSame([1, 2], $user->propertiesArray());
+        self::assertNull($user->propertiesObject());
+    }
+
+    public function testChangePropertiesRejectsUnknownUser(): void
+    {
+        $this->expectException(\Arris\Auth\Exception\UnknownUserException::class);
+        $this->auth()->changeProperties(999, ['ok' => true]);
+    }
+
+    public function testChangePropertiesRejectsUnencodablePayload(): void
+    {
+        $id = $this->createUser();
+
+        $this->expectException(AuthException::class);
+
+        $this->auth()->changeProperties($id, ['bad' => \NAN]);
     }
 
     public function testLoginWithAmbiguousUsernameThrows(): void

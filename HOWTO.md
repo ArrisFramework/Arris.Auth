@@ -307,6 +307,21 @@ try {
 username по-прежнему разрешены; в этом случае `loginWithUsername()` бросает
 `AmbiguousUsernameException`.
 
+Дополнительные JSON-свойства пользователя:
+
+```php
+$auth->changeProperties($userId, ['theme' => 'dark']);
+$auth->changeOwnProperties(new \stdClass());
+
+$user = $auth->user();
+$user?->properties;        // raw JSON
+$user?->propertiesArray(); // ['theme' => 'dark']
+$user?->propertiesObject(); // stdClass
+```
+
+`changeProperties(..., null)` очищает поле. Невалидный JSON в старых данных
+возвращает `null` из helper-методов; сырое значение остаётся в `properties`.
+
 `remember: true` включает remember-me cookie. Время жизни задаётся заранее:
 
 ```php

@@ -1457,6 +1457,59 @@ class Auth
     }
 
     /**
+     * Replaces a user's properties payload. The payload is always stored as JSON.
+     *
+     * Заменяет payload свойств пользователя. Payload всегда сохраняется как JSON.
+     *
+     * @throws UnknownUserException
+     * @throws AuthException
+     */
+    public function changeProperties(int $userId, array|\stdClass|null $properties): void
+    {
+        $this->requireUser($userId);
+
+        if ($properties === null) {
+            $encoded = null;
+        } else {
+            try {
+                $encoded = \json_encode(
+                    $properties,
+                    \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES
+                );
+            } catch (\JsonException $e) {
+                throw new AuthException('Unable to encode user properties', 0, $e);
+            }
+        }
+
+        $this->users->updateProperties($userId, $encoded);
+        $this->invalidateCachedUser($userId);
+
+        $this->log('info', 'User properties changed', [
+            'user_id' => $userId,
+            'has_properties' => $encoded !== null,
+        ]);
+    }
+
+    /**
+     * Replaces the current user's properties payload.
+     *
+     * Заменяет payload свойств текущего пользователя.
+     *
+     * @throws NotLoggedInException
+     * @throws AuthException
+     */
+    public function changeOwnProperties(array|\stdClass|null $properties): void
+    {
+        $userId = $this->id();
+
+        if ($userId === null) {
+            throw new NotLoggedInException('Not logged in');
+        }
+
+        $this->changeProperties($userId, $properties);
+    }
+
+    /**
      * Updates a user's password and invalidates existing sessions and tokens.
      * When $keepCurrentSession is true, the current cookie session remains valid.
      *

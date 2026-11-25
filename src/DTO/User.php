@@ -193,6 +193,44 @@ final readonly class User
     }
 
     /**
+     * Decodes the properties payload as an associative array.
+     * Returns null for empty or non-JSON/non-array data.
+     *
+     * Декодирует payload свойств в ассоциативный массив.
+     * Возвращает null для пустых или не-JSON/non-array данных.
+     *
+     * @return array<string, mixed>|list<mixed>|null
+     */
+    public function propertiesArray(): ?array
+    {
+        if ($this->properties === null || \trim($this->properties) === '') {
+            return null;
+        }
+
+        $decoded = \json_decode($this->properties, true);
+
+        return \is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Decodes the properties payload as stdClass.
+     * Returns null when the payload is not a JSON object.
+     *
+     * Декодирует payload свойств в stdClass.
+     * Возвращает null, если payload не является JSON-объектом.
+     */
+    public function propertiesObject(): ?\stdClass
+    {
+        if ($this->properties === null || \trim($this->properties) === '') {
+            return null;
+        }
+
+        $decoded = \json_decode($this->properties, false);
+
+        return $decoded instanceof \stdClass ? $decoded : null;
+    }
+
+    /**
      * Exports the user fields as an associative array.
      *
      * Экспортирует поля пользователя в виде ассоциативного массива.
